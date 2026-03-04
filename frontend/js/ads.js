@@ -17,11 +17,14 @@ exports.handler = async (event) => {
 
   // Inclui campos de imagem e vídeo que a Meta retorna diretamente
   const fields = [
-    'id', 'page_name', 'page_id',
+    'id',
+    'page_name',
+    'page_id',
     'ad_creative_bodies',
     'ad_creative_link_titles',
     'ad_creative_link_captions',
     'ad_creative_link_descriptions',
+    'ad_creative_link_url',
     'ad_snapshot_url',
     'ad_delivery_start_time',
     'ad_delivery_stop_time',

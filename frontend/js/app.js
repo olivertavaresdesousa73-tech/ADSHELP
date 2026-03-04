@@ -1,6 +1,6 @@
 // ============================================
 // ADHELP v4 — app.js
-// media proxy · paginação · análise inteligente
+// ad card visual · paginação · análise inteligente
 // anúncios salvos · canvas texto livre · fontes
 // ============================================
 
@@ -9,11 +9,14 @@ const META_API      = 'https://graph.facebook.com/v19.0/ads_archive';
 const DEFAULT_TOKEN = 'EAAawblFuQiwBQ4cEWlWsB5SDZBKhJZB7VKZB51ckZCLMTMKkqgBNPfHLjAx9U6yFXVgEqWRwCoGPtzChGt5kCK6Ek7jxR0tGIFLOXXIZAZAZA36pCByVJikVHpoGqg1UCAgqIVtN7ZCOhjuppir6D4j59fXzHZA2O3tzPg3qaO7wyZATK1qboFtSFCZB15EQFD8IGVYmpqJiCBmZA8qLRIMM2ZA20DxOLZBhlWlxroW0oQgZAFiWUsbW9z7iLuKOco4xes3WOzu2tg9TC7X3EFijZCTZCR7LR4hxNj2ucgtxG9bfw454ZD';
 
 const AD_FIELDS = [
-  'id','page_name','page_id',
+  'id',
+  'page_name',
+  'page_id',
   'ad_creative_bodies',
   'ad_creative_link_titles',
   'ad_creative_link_captions',
   'ad_creative_link_descriptions',
+  'ad_creative_link_url',
   'ad_snapshot_url',
   'ad_delivery_start_time',
   'ad_delivery_stop_time',
@@ -48,52 +51,49 @@ async function fetchAds(params) {
   return d;
 }
 
-// ── MEDIA HELPERS ─────────────────────────────────────────────
-// A Meta Ads Library API não expõe URLs diretas de imagem/vídeo.
-// O único recurso disponível é o ad_snapshot_url (iframe).
+// ── AD CARD VISUAL ────────────────────────────────────────────
+// Renderiza o preview do anúncio usando APENAS dados retornados
+// oficialmente pela API da Meta. Sem iframe, sem proxy, sem scraping.
 
-// Gera o preview correto usando iframe do ad_snapshot_url.
-function buildMediaPreviewHTML(ad, wrapClass, onclickAttr) {
-  wrapClass   = wrapClass   || 'ad-iframe-wrap';
+function buildAdCardPreview(ad, onclickAttr) {
   onclickAttr = onclickAttr || '';
 
-  if (!ad.ad_snapshot_url) {
-    return '<div class="' + wrapClass + '"><div class="ad-no-preview"><span style="font-size:40px">📢</span><span>Sem pré-visualização</span></div></div>';
-  }
+  const title   = (ad.ad_creative_link_titles  && ad.ad_creative_link_titles[0])  || '';
+  const caption = (ad.ad_creative_link_captions && ad.ad_creative_link_captions[0]) || '';
+  const body    = (ad.ad_creative_bodies        && ad.ad_creative_bodies[0])        || '';
+  const snapUrl = ad.ad_snapshot_url || '';
 
-  const title   = (ad.page_name || '').replace(/"/g, '&quot;');
-  const snapUrl  = ad.ad_snapshot_url;
-  const overlay  = onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + ' title="Ver detalhes"></div>' : '';
-  // O iframe da Meta só exibe o criativo quando o usuário está logado no Facebook.
-  // Mostramos o iframe normalmente + um fallback visual com link caso o iframe fique vazio.
-  const fallback = '<div class="iframe-fallback"><span style="font-size:28px">🖼</span><span>Faça login no Facebook para ver o preview</span><a href="' + snapUrl + '" target="_blank" rel="noopener" class="iframe-fallback-link">Abrir anúncio ↗</a></div>';
-  return '<div class="' + wrapClass + ' iframe-wrap-container" data-snap="' + snapUrl + '">' +
-    '<iframe class="ad-iframe" src="' + snapUrl + '" frameborder="0" loading="lazy" ' +
-    'sandbox="allow-scripts allow-same-origin allow-popups allow-forms" scrolling="no" ' +
-    'title="Anúncio ' + title + '" ' +
-    'onload="checkIframeLoaded(this)"></iframe>' +
-    fallback + overlay + '</div>';
-}
-
-// Detecta iframe vazio (Meta bloqueia sem login) e exibe fallback.
-function checkIframeLoaded(iframe) {
+  // Domínio do link (se disponível)
+  let domain = '';
   try {
-    // Se o iframe carregou mas está em branco (cross-origin), mostramos o fallback
-    const wrap = iframe.closest('.iframe-wrap-container');
-    if (!wrap) return;
-    // Tenta acessar o contentDocument — se jogar erro de cross-origin, o iframe carregou conteúdo real
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    // Se chegou aqui sem erro mas o body está vazio, é a tela de login do Facebook
-    if (!doc || !doc.body || doc.body.innerHTML.trim() === '') {
-      wrap.classList.add('iframe-empty');
-    }
-  } catch(e) {
-    // Cross-origin: iframe carregou conteúdo real da Meta — esconde o fallback
-    const wrap = iframe.closest('.iframe-wrap-container');
-    if (wrap) wrap.classList.add('iframe-loaded');
-  }
+    const raw = (ad.ad_creative_link_url && ad.ad_creative_link_url[0]) || '';
+    if (raw) domain = new URL(raw.startsWith('http') ? raw : 'https://' + raw).hostname.replace(/^www\./, '');
+  } catch(_) {}
+
+  // Texto de preview: título > legenda > body (primeiros 100 chars)
+  const previewText = title || caption || (body ? body.slice(0, 100) + (body.length > 100 ? '…' : '') : '');
+
+  // Ícone de tipo baseado no ad_type (se disponível) — imagem padrão
+  const typeIcon = '🖼';
+
+  const clickHandler = onclickAttr ? `style="cursor:pointer" ${onclickAttr}` : '';
+
+  return `<div class="ad-creative-card" ${clickHandler}>
+    <div class="ad-creative-placeholder">
+      <span class="ad-creative-icon">${typeIcon}</span>
+      ${previewText ? `<p class="ad-creative-preview-text">${previewText}</p>` : ''}
+    </div>
+    <div class="ad-creative-meta">
+      ${domain ? `<span class="ad-creative-domain">🔗 ${domain}</span>` : ''}
+      ${snapUrl ? `<a class="ad-creative-cta" href="${snapUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ver anúncio original ↗</a>` : ''}
+    </div>
+  </div>`;
 }
 
+// Mantido para compatibilidade com chamadas existentes no modal
+function buildMediaPreviewHTML(ad, wrapClass, onclickAttr) {
+  return buildAdCardPreview(ad, onclickAttr);
+}
 
 let state = {
   theme:            localStorage.getItem('adhelp_theme') || 'dark',
