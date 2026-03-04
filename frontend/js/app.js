@@ -1,6 +1,6 @@
 // ============================================
 // ADHELP v4 — app.js
-// ad card visual · paginação · análise inteligente
+// iframe preview · paginação · análise inteligente
 // anúncios salvos · canvas texto livre · fontes
 // ============================================
 
@@ -9,17 +9,11 @@ const META_API      = 'https://graph.facebook.com/v19.0/ads_archive';
 const DEFAULT_TOKEN = 'EAAawblFuQiwBQ4cEWlWsB5SDZBKhJZB7VKZB51ckZCLMTMKkqgBNPfHLjAx9U6yFXVgEqWRwCoGPtzChGt5kCK6Ek7jxR0tGIFLOXXIZAZAZA36pCByVJikVHpoGqg1UCAgqIVtN7ZCOhjuppir6D4j59fXzHZA2O3tzPg3qaO7wyZATK1qboFtSFCZB15EQFD8IGVYmpqJiCBmZA8qLRIMM2ZA20DxOLZBhlWlxroW0oQgZAFiWUsbW9z7iLuKOco4xes3WOzu2tg9TC7X3EFijZCTZCR7LR4hxNj2ucgtxG9bfw454ZD';
 
 const AD_FIELDS = [
-  'id',
-  'page_name',
-  'page_id',
+  'id','page_name','page_id',
   'ad_creative_bodies',
-  'ad_creative_link_titles',
-  'ad_creative_link_captions',
-  'ad_creative_link_descriptions',
-  'ad_creative_link_url',
   'ad_snapshot_url',
   'ad_delivery_start_time',
-  'ad_delivery_stop_time',
+  'ad_delivery_stop_time'
 ].join(',');
 
 function getToken() {
@@ -51,50 +45,87 @@ async function fetchAds(params) {
   return d;
 }
 
-// ── AD CARD VISUAL ────────────────────────────────────────────
-// Renderiza o preview do anúncio usando APENAS dados retornados
-// oficialmente pela API da Meta. Sem iframe, sem proxy, sem scraping.
+// ── PREVIEW DE MÍDIA ──────────────────────────────────────────
+// Estrategia: snapshot.js (Netlify Function) busca o HTML do
+// ad_snapshot_url no servidor e extrai og:image / og:video.
+// imgproxy.js serve os bytes com CORS correto pro browser.
+// Cache em sessionStorage por ad.id para nao repetir chamadas.
 
-function buildAdCardPreview(ad, onclickAttr) {
-  onclickAttr = onclickAttr || '';
+function _proxyImg(url) {
+  return '/.netlify/functions/imgproxy?url=' + encodeURIComponent(url);
+}
 
-  const title   = (ad.ad_creative_link_titles  && ad.ad_creative_link_titles[0])  || '';
-  const caption = (ad.ad_creative_link_captions && ad.ad_creative_link_captions[0]) || '';
-  const body    = (ad.ad_creative_bodies        && ad.ad_creative_bodies[0])        || '';
-  const snapUrl = ad.ad_snapshot_url || '';
+function _getCached(id) {
+  try { return JSON.parse(sessionStorage.getItem('adm_' + id)); } catch(e) { return null; }
+}
+function _setCached(id, data) {
+  try { sessionStorage.setItem('adm_' + id, JSON.stringify(data)); } catch(e) {}
+}
 
-  // Domínio do link (se disponível)
-  let domain = '';
+async function _fetchMedia(ad) {
+  if (!ad.ad_snapshot_url) return null;
+  const cached = _getCached(ad.id);
+  if (cached) return cached;
   try {
-    const raw = (ad.ad_creative_link_url && ad.ad_creative_link_url[0]) || '';
-    if (raw) domain = new URL(raw.startsWith('http') ? raw : 'https://' + raw).hostname.replace(/^www\./, '');
-  } catch(_) {}
-
-  // Texto de preview: título > legenda > body (primeiros 100 chars)
-  const previewText = title || caption || (body ? body.slice(0, 100) + (body.length > 100 ? '…' : '') : '');
-
-  // Ícone de tipo baseado no ad_type (se disponível) — imagem padrão
-  const typeIcon = '🖼';
-
-  const clickHandler = onclickAttr ? `style="cursor:pointer" ${onclickAttr}` : '';
-
-  return `<div class="ad-creative-card" ${clickHandler}>
-    <div class="ad-creative-placeholder">
-      <span class="ad-creative-icon">${typeIcon}</span>
-      ${previewText ? `<p class="ad-creative-preview-text">${previewText}</p>` : ''}
-    </div>
-    <div class="ad-creative-meta">
-      ${domain ? `<span class="ad-creative-domain">🔗 ${domain}</span>` : ''}
-      ${snapUrl ? `<a class="ad-creative-cta" href="${snapUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ver anúncio original ↗</a>` : ''}
-    </div>
-  </div>`;
+    const ep  = '/.netlify/functions/snapshot?id=' + encodeURIComponent(ad.id) +
+                '&url=' + encodeURIComponent(ad.ad_snapshot_url);
+    const res  = await fetch(ep);
+    const data = await res.json();
+    if (data.imageUrl || data.videoUrl) { _setCached(ad.id, data); return data; }
+  } catch(e) {}
+  return null;
 }
 
-// Mantido para compatibilidade com chamadas existentes no modal
-function buildMediaPreviewHTML(ad, wrapClass, onclickAttr) {
-  return buildAdCardPreview(ad, onclickAttr);
+// Constroi o <div class="ad-preview-wrap"> com imagem/video ou spinner,
+// e dispara a busca assincrona para preencher o wrap quando chegar.
+function buildPreviewWrap(ad, onclickAttr) {
+  const wrapId = 'pw_' + ad.id;
+  onclickAttr  = onclickAttr || '';
+
+  // HTML inicial: spinner + link fallback
+  const fallback = ad.ad_snapshot_url
+    ? '<a class="ad-preview-fb-link" href="' + ad.ad_snapshot_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ver no Facebook ↗</a>'
+    : '';
+  const html = '<div class="ad-preview-wrap" id="' + wrapId + '">'
+    + '<div class="ad-preview-loading"><div class="mini-spinner"></div>' + fallback + '</div>'
+    + (onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + '></div>' : '')
+    + '</div>';
+
+  // Busca assincrona — preenche o wrap quando a midia chegar
+  _fetchMedia(ad).then(function(data) {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap || !data) return;
+
+    if (data.videoUrl) {
+      wrap.innerHTML = '<video class="ad-preview-media" src="' + _proxyImg(data.videoUrl) + '" autoplay muted loop playsinline preload="metadata"></video>'
+        + (onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + '></div>' : '');
+      return;
+    }
+    if (data.imageUrl) {
+      const img = new Image();
+      img.className = 'ad-preview-media';
+      img.alt       = 'Criativo';
+      img.onload    = function() {
+        wrap.innerHTML = '';
+        wrap.appendChild(img);
+        if (onclickAttr) {
+          const ov = document.createElement('div');
+          ov.className = 'iframe-click-overlay';
+          ov.setAttribute('onclick', onclickAttr.replace(/^onclick="/, '').replace(/"$/, ''));
+          wrap.appendChild(ov);
+        }
+      };
+      img.onerror = function() {
+        wrap.querySelector('.ad-preview-loading') && (wrap.querySelector('.ad-preview-loading').innerHTML = fallback || '<span style="font-size:28px;opacity:.3">🖼</span>');
+      };
+      img.src = _proxyImg(data.imageUrl);
+    }
+  });
+
+  return html;
 }
 
+// ── STATE ─────────────────────────────────────────────────────
 let state = {
   theme:            localStorage.getItem('adhelp_theme') || 'dark',
   sidebarCollapsed: false,
@@ -340,17 +371,20 @@ function createAdCard(ad) {
   const date  = ad.ad_delivery_start_time
     ? new Date(ad.ad_delivery_start_time).toLocaleDateString('pt-BR') : 'N/D';
   const indicators = getAdIndicators(ad);
-  const adEncoded  = encodeURIComponent(JSON.stringify(ad));
-  const indHTML    = indicators.slice(0,3).map(i =>
+
+  // Encode for onclick — escapar corretamente
+  const adEncoded = encodeURIComponent(JSON.stringify(ad));
+
+  const indHTML = indicators.slice(0,3).map(i =>
     `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(255,255,255,.07);color:${i.color}">${i.icon} ${i.label}</span>`
   ).join('');
 
+  const previewHTML = buildPreviewWrap(ad, `onclick="openAdDetail('${adEncoded}')"`);
+
   const card = document.createElement('div');
   card.className = 'ad-card';
-
   card.innerHTML = `
-    ${buildMediaPreviewHTML(ad, 'ad-iframe-wrap',
-        `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`)}
+    ${previewHTML}
     <div class="ad-body">
       <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
       ${indHTML ? `<div class="ad-indicators">${indHTML}</div>` : ''}
@@ -365,7 +399,6 @@ function createAdCard(ad) {
         <button class="btn btn-primary btn-sm" onclick="saveAdFromCard('${adEncoded}')">💾 Salvar</button>
       </div>
     </div>`;
-
   return card;
 }
 
@@ -392,12 +425,11 @@ function openAdDetail(encoded) {
   const trigCount = triggers.filter(t => body.toLowerCase().includes(t)).length;
   const hasSocial = ['pessoas','clientes','alunos','depoimento','avaliação','comprovado'].some(w => body.toLowerCase().includes(w));
 
-  // Preview do modal — usa mídia direta ou iframe como fallback
-  const modalWrapId = `modalMediaWrap_${ad.id}`;
-  const mediaSection = `<div class="modal-layout">
+  // Preview do modal — usa buildPreviewWrap (sem iframe)
+  const iframeSection = `<div class="modal-layout">
     <div>
-      <div class="modal-iframe-wrap" id="${modalWrapId}">
-        ${buildMediaPreviewHTML(ad, '', '')}
+      <div class="modal-iframe-wrap">
+        ${buildPreviewWrap(ad, '')}
       </div>
       <div style="text-align:center;margin-top:10px">
         ${ad.ad_snapshot_url ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener"
@@ -409,7 +441,7 @@ function openAdDetail(encoded) {
   document.getElementById('modalAdName').textContent = ad.page_name || 'Anúncio';
 
   document.getElementById('modalAdBody').innerHTML = `
-    ${mediaSection}
+    ${iframeSection}
       <div class="modal-ad-header">
         <div class="score-ring ${scoreClass(score)}" style="width:52px;height:52px;font-size:16px;flex-shrink:0">${score}</div>
         <div>
@@ -520,12 +552,12 @@ function createSavedCard(ad) {
   const savedAt = ad._savedAt ? new Date(ad._savedAt).toLocaleDateString('pt-BR') : '';
   const adEncoded = encodeURIComponent(JSON.stringify(ad));
 
+  const previewHTML = buildPreviewWrap(ad, `onclick="openAdDetail('${adEncoded}')"`);
+
   const card = document.createElement('div');
   card.className = 'ad-card';
-
   card.innerHTML = `
-    ${buildMediaPreviewHTML(ad, 'ad-iframe-wrap',
-        `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`)}
+    ${previewHTML}
     <div class="ad-body">
       <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
       <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Sem texto</em>'}</div>
@@ -540,7 +572,6 @@ function createSavedCard(ad) {
         <button class="btn btn-danger btn-sm" onclick="removeSavedAd('${ad.id}')">🗑 Remover</button>
       </div>
     </div>`;
-
   return card;
 }
 
@@ -681,6 +712,7 @@ function onVPDown(e) {
   }
 }
 
+// Caixa com borda
 function addNode(text='Novo Bloco') {
   const id=`n${++nodeCounter}`;
   const cx=(getVP().clientWidth/2-state.vpX)/state.vpScale-100;
@@ -700,6 +732,7 @@ function addNode(text='Novo Bloco') {
   return node;
 }
 
+// Texto livre (sem caixa)
 function addTextNode(text='Texto livre') {
   const id=`t${++nodeCounter}`;
   const cx=(getVP().clientWidth/2-state.vpX)/state.vpScale-80;

@@ -4,28 +4,31 @@
 
 ```
 adhelp/
-├── netlify.toml                  ← Configuração Netlify (SPA + Functions)
+├── netlify.toml                     ← Configuração Netlify (SPA + Functions)
+├── .env.example                     ← Modelo de variáveis de ambiente
+├── .gitignore
 ├── netlify/
 │   └── functions/
-│       ├── ads.js                ← Proxy Meta API (sem CORS)
-│       └── snapshot.js           ← Extrai imagens dos anúncios
-├── frontend/                     ← Pasta publicada no Netlify
+│       ├── ads.js                   ← Proxy da Meta Ads Library API
+│       ├── snapshot.js              ← Extrai imagem/vídeo do criativo
+│       └── imgproxy.js              ← Serve mídia do CDN da Meta com CORS correto
+├── frontend/                        ← Pasta publicada no Netlify
 │   ├── index.html
 │   ├── css/style.css
 │   ├── js/app.js
 │   └── images/
-│       └── LEIA-ME.txt           ← Coloque logo.png aqui
-└── backend/                      ← Servidor alternativo (VPS/local)
+│       └── LEIA-ME.txt             ← Coloque sua logo.png aqui
+└── backend/                         ← Servidor alternativo (VPS/local)
     ├── server.js
     ├── package.json
-    └── .env.example
+    └── .env.example                 ← (copie o da raiz)
 ```
 
 ---
 
-## ⚡ Deploy no Netlify (RECOMENDADO — Grátis)
+## ⚡ Deploy no Netlify (Recomendado — Grátis)
 
-### Passo 1 — Subir no GitHub
+### 1 — Subir no GitHub
 ```bash
 git init
 git add .
@@ -34,44 +37,53 @@ git remote add origin https://github.com/SEU_USER/adhelp.git
 git push -u origin main
 ```
 
-### Passo 2 — Conectar ao Netlify
+### 2 — Conectar ao Netlify
 1. Acesse https://netlify.com e faça login
-2. Clique em **"Add new site" → "Import an existing project"**
+2. **Add new site → Import an existing project**
 3. Conecte ao GitHub e selecione o repositório
 
-### Passo 3 — Configurar Build Settings
+### 3 — Build Settings
 ```
-Build command:   (deixar vazio)
+Build command:      (deixar vazio)
 Publish directory:  frontend
 ```
-> O arquivo `netlify.toml` já configura isso automaticamente.
+> O `netlify.toml` já configura isso automaticamente.
 
-### Passo 4 — Variáveis de Ambiente (IMPORTANTE)
-No painel do Netlify:
-**Site Settings → Environment variables → Add variable**
+### 4 — Variável de Ambiente (OBRIGATÓRIO)
+No painel do Netlify: **Site Settings → Environment variables**
 
 | Chave | Valor |
 |-------|-------|
 | `META_ACCESS_TOKEN` | `seu_token_da_meta_api` |
 
-> Sem isso, a busca de anúncios não funcionará em produção.
-
-### Passo 5 — Deploy
-Clique em **"Deploy site"** — em ~1 minuto o site estará no ar!
+### 5 — Deploy
+Clique em **Deploy site** — em ~1 minuto o site estará no ar.
 
 ---
 
 ## 🔑 Como obter o Token da Meta API
 
 1. Acesse: https://developers.facebook.com/tools/explorer/
-2. Selecione seu App (ou crie um em developers.facebook.com)
-3. Adicione permissão: `ads_read`
-4. Clique em **"Generate Access Token"**
-5. Copie o token e cole em:
-   - **Netlify:** variável `META_ACCESS_TOKEN`
-   - **Painel ADHELP:** Configurações → Token de API
+2. Selecione seu App (ou crie em developers.facebook.com)
+3. Adicione a permissão: `ads_read`
+4. Clique em **Generate Access Token**
+5. Cole o token na variável `META_ACCESS_TOKEN` do Netlify
 
-> ⚠️ Tokens de usuário expiram em ~60 dias. Para tokens permanentes, use um "System User Token" via Meta Business Manager.
+> ⚠️ Tokens de usuário expiram em ~60 dias. Para token permanente, use um **System User Token** via Meta Business Manager.
+
+---
+
+## 🖼️ Como funciona o preview de criativos
+
+O ADHELP usa 3 Netlify Functions para exibir imagens e vídeos dos anúncios sem iframe:
+
+| Function | O que faz |
+|----------|-----------|
+| `ads.js` | Busca anúncios na Meta Ads Library API |
+| `snapshot.js` | Acessa o HTML do anúncio no servidor e extrai `og:image` / `og:video` |
+| `imgproxy.js` | Baixa a imagem do CDN da Meta e serve com CORS correto para o browser |
+
+> A Meta bloqueia iframes com `X-Frame-Options: DENY`. Esta solução contorna isso sem violar a política da plataforma — o servidor acessa o snapshot e o frontend exibe a mídia via `<img>` normal.
 
 ---
 
@@ -81,22 +93,7 @@ Coloque sua logo em:
 ```
 frontend/images/logo.png
 ```
-Recomendado: 64×64px ou 128×128px, fundo transparente (PNG).
-
----
-
-## 🗺️ Funcionalidades do Mapa
-
-| Ação | Como fazer |
-|------|-----------|
-| Zoom in/out | Scroll do mouse |
-| Mover canvas | Segurar Espaço + arrastar |
-| Adicionar bloco | Botão "+ Bloco" |
-| Mover bloco | Arrastar o bloco |
-| Redimensionar | Arrastar o canto inferior direito |
-| Editar texto | Duplo clique no bloco |
-| Mudar cor | Selecionar bloco + clicar na cor |
-| Desfazer/Refazer | Botões ↩ ↪ |
+Recomendado: 64×64px, fundo transparente (PNG).
 
 ---
 
@@ -105,7 +102,7 @@ Recomendado: 64×64px ou 128×128px, fundo transparente (PNG).
 ```bash
 cd backend
 npm install
-cp .env.example .env   # configure o token
+cp ../.env.example .env   # edite e coloque seu token
 npm start
 # Acesse: http://localhost:3001
 ```
@@ -116,10 +113,11 @@ npm start
 
 ```
 Netlify (produção)
-  Browser → /.netlify/functions/ads → Meta Graph API
-  Browser → /.netlify/functions/snapshot → Extrai imagem do criativo
+  Browser → /.netlify/functions/ads        → Meta Graph API
+  Browser → /.netlify/functions/snapshot   → HTML do snapshot (extrai og:image)
+  Browser → /.netlify/functions/imgproxy   → CDN Meta → bytes da imagem
 
-Local (desenvolvimento)  
+Local (desenvolvimento)
   Browser → corsproxy.io → Meta Graph API
 ```
 
