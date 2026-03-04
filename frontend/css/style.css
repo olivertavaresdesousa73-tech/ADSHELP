@@ -295,6 +295,19 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:8px;color:var(--text3);font-size:12px;
 }
+/* Estado quando a mídia não pôde ser extraída — substitui o spinner infinito */
+.ad-preview-no-media{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  width:100%;
+  height:100%;
+  color:var(--text3);
+  font-size:11px;
+  background:var(--bg3);
+}
 
 .ad-body{padding:14px;display:flex;flex-direction:column;gap:7px;flex:1;}
 .ad-page-name{font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;}

@@ -70,8 +70,16 @@ async function _fetchMedia(ad) {
     const ep  = '/.netlify/functions/snapshot?id=' + encodeURIComponent(ad.id) +
                 '&url=' + encodeURIComponent(ad.ad_snapshot_url);
     const res  = await fetch(ep);
+    if (!res.ok) return null;
     const data = await res.json();
-    if (data.imageUrl || data.videoUrl) { _setCached(ad.id, data); return data; }
+    // CORREÇÃO: cacheia mesmo quando found:false para não repetir a chamada
+    // e evitar o spinner infinito em anúncios sem mídia extraível
+    if (data.imageUrl || data.videoUrl) {
+      _setCached(ad.id, data);
+      return data;
+    }
+    // Marca como "sem mídia" no cache para não retentar
+    _setCached(ad.id, { imageUrl: null, videoUrl: null, found: false });
   } catch(e) {}
   return null;
 }
@@ -94,7 +102,15 @@ function buildPreviewWrap(ad, onclickAttr) {
   // Busca assincrona — preenche o wrap quando a midia chegar
   _fetchMedia(ad).then(function(data) {
     const wrap = document.getElementById(wrapId);
-    if (!wrap || !data) return;
+    if (!wrap) return;
+
+    // CORREÇÃO: se não encontrou mídia, substituir spinner pelo fallback imediatamente
+    if (!data || (!data.imageUrl && !data.videoUrl)) {
+      wrap.innerHTML = fallback
+        ? '<div class="ad-preview-no-media">' + fallback + '</div>'
+        : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
+      return;
+    }
 
     if (data.videoUrl) {
       wrap.innerHTML = '<video class="ad-preview-media" src="' + _proxyImg(data.videoUrl) + '" autoplay muted loop playsinline preload="metadata"></video>'
@@ -115,10 +131,23 @@ function buildPreviewWrap(ad, onclickAttr) {
           wrap.appendChild(ov);
         }
       };
+      // CORREÇÃO: no erro de carregamento da imagem, mostrar fallback sem spinner
       img.onerror = function() {
-        wrap.querySelector('.ad-preview-loading') && (wrap.querySelector('.ad-preview-loading').innerHTML = fallback || '<span style="font-size:28px;opacity:.3">🖼</span>');
+        if (wrap) {
+          wrap.innerHTML = fallback
+            ? '<div class="ad-preview-no-media">' + fallback + '</div>'
+            : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
+        }
       };
       img.src = _proxyImg(data.imageUrl);
+    }
+  }).catch(function() {
+    // CORREÇÃO: em caso de erro inesperado, remover spinner e exibir fallback
+    const wrap = document.getElementById(wrapId);
+    if (wrap) {
+      wrap.innerHTML = fallback
+        ? '<div class="ad-preview-no-media">' + fallback + '</div>'
+        : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
     }
   });
 

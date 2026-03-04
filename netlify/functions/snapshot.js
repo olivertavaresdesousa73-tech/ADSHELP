@@ -1,9 +1,13 @@
 // netlify/functions/snapshot.js
 // Acessa ad_snapshot_url da Meta no servidor, extrai og:image / og:video
 // e retorna as URLs para o frontend exibir via /imgproxy.
+//
+// CORREÇÃO: Adicionado suporte a gzip/deflate, mais padrões de extração,
+// decodificação de unicode escapes e fallback robusto para evitar spinner infinito.
 
-const https = require('https');
-const http  = require('http');
+const https  = require('https');
+const http   = require('http');
+const zlib   = require('zlib');
 
 const cache = {};
 const TTL   = 60 * 60 * 1000; // 1h
@@ -15,10 +19,10 @@ function fetchHtml(url, hops) {
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, {
       headers: {
-        'User-Agent':      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+        'User-Agent':      'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
         'Accept':          'text/html,application/xhtml+xml,*/*;q=0.8',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-        'Accept-Encoding': 'identity',
+        'Accept-Encoding': 'gzip, deflate, identity',
         'Cache-Control':   'no-cache',
       }
     }, function(res) {
@@ -30,12 +34,29 @@ function fetchHtml(url, hops) {
         res.resume();
         return fetchHtml(next, hops - 1).then(resolve).catch(reject);
       }
+
+      const encoding = res.headers['content-encoding'] || '';
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end',  () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        if (encoding === 'gzip') {
+          zlib.gunzip(buf, (err, decoded) => {
+            if (err) resolve(buf.toString('utf8'));
+            else resolve(decoded.toString('utf8'));
+          });
+        } else if (encoding === 'deflate') {
+          zlib.inflate(buf, (err, decoded) => {
+            if (err) resolve(buf.toString('utf8'));
+            else resolve(decoded.toString('utf8'));
+          });
+        } else {
+          resolve(buf.toString('utf8'));
+        }
+      });
     });
     req.on('error', reject);
-    req.setTimeout(12000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
@@ -48,22 +69,47 @@ function first(html, patterns) {
   return null;
 }
 
+// Decodifica unicode escapes (\u0026 -> &) e barras escapadas (\/ -> /)
+function decodeEscapes(str) {
+  if (!str) return str;
+  return str
+    .replace(/\\u0026/g, '&')
+    .replace(/\\u003C/gi, '<')
+    .replace(/\\u003E/gi, '>')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/g, '&');
+}
+
 function extractMedia(html) {
+  // Tenta extrair de og:image com múltiplos padrões
   const imageUrl = first(html, [
+    // og:image padrão
     /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+    // og:image com entidades HTML
+    /<meta\s+property="og:image"\s+content="([^"]+)"/i,
+    /<meta\s+content="([^"]+)"\s+property="og:image"/i,
+    // JSON-LD / inline data — URLs fbcdn em strings JSON
+    /"(https:\/\/[^"]*fbcdn\.net[^"]*\.(?:jpg|jpeg|png|webp)[^"?]*\?[^"]+)"/i,
+    // img tag direto com fbcdn
     /<img[^>]+src=["'](https:\/\/[^"']*fbcdn\.net[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)["']/i,
+    // scontent (outro domínio de CDN da Meta)
+    /"(https:\/\/scontent[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"/i,
   ]);
 
+  // Tenta extrair de og:video
   const videoUrl = first(html, [
     /<meta[^>]+property=["']og:video(?::url|:secure_url)?["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:video(?::url|:secure_url)?["']/i,
-    /["'](https:\/\/[^"']*fbcdn\.net[^"']*\.mp4[^"']*?)["']/i,
+    /<meta\s+property="og:video(?::url|:secure_url)?"\s+content="([^"]+)"/i,
+    // .mp4 em CDN da Meta
+    /"(https:\/\/[^"]*fbcdn\.net[^"]*\.mp4[^"]*)"/i,
+    /'(https:\/\/[^']*fbcdn\.net[^']*\.mp4[^']*)'/i,
   ]);
 
   return {
-    imageUrl: imageUrl || null,
-    videoUrl: videoUrl ? videoUrl.replace(/\\u0026/g, '&').replace(/\\\//g, '/') : null,
+    imageUrl: decodeEscapes(imageUrl) || null,
+    videoUrl: decodeEscapes(videoUrl) || null,
   };
 }
 
@@ -95,6 +141,11 @@ exports.handler = async function(event) {
     cache[id] = data;
     return { statusCode: 200, headers: cors, body: JSON.stringify(data) };
   } catch(err) {
-    return { statusCode: 500, headers: cors, body: JSON.stringify({ error: err.message, imageUrl: null, videoUrl: null, found: false }) };
+    // Sempre retorna 200 com found:false para o frontend não travar em spinner
+    return {
+      statusCode: 200,
+      headers: cors,
+      body: JSON.stringify({ error: err.message, imageUrl: null, videoUrl: null, found: false })
+    };
   }
 };
