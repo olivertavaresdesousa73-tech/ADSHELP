@@ -15,12 +15,26 @@ exports.handler = async (event) => {
   if (!token) return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'Token não configurado. Defina META_ACCESS_TOKEN nas variáveis do Netlify.' }) };
   if (!q.search_terms) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'search_terms obrigatório' }) };
 
+  // Inclui campos de imagem e vídeo que a Meta retorna diretamente
+  const fields = [
+    'id', 'page_name', 'page_id',
+    'ad_creative_bodies',
+    'ad_creative_link_titles',
+    'ad_creative_link_captions',
+    'ad_creative_link_descriptions',
+    'ad_snapshot_url',
+    'ad_delivery_start_time',
+    'ad_delivery_stop_time',
+    'ad_creative_images',   // URLs de imagem diretas
+    'ad_creative_videos',   // URLs de vídeo diretas
+  ].join(',');
+
   const params = new URLSearchParams({
     search_terms:         q.search_terms,
     ad_type:              q.ad_type || 'ALL',
     ad_reached_countries: JSON.stringify([q.country || 'BR']),
-    fields:               'id,page_name,page_id,ad_creative_bodies,ad_snapshot_url,ad_delivery_start_time,ad_delivery_stop_time',
-    limit:                q.limit  || '24',
+    fields,
+    limit:                q.limit || '24',
     access_token:         token
   });
   if (q.after) params.set('after', q.after);

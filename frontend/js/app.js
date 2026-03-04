@@ -11,9 +11,14 @@ const DEFAULT_TOKEN = 'EAAawblFuQiwBQ4cEWlWsB5SDZBKhJZB7VKZB51ckZCLMTMKkqgBNPfHL
 const AD_FIELDS = [
   'id','page_name','page_id',
   'ad_creative_bodies',
+  'ad_creative_link_titles',
+  'ad_creative_link_captions',
+  'ad_creative_link_descriptions',
   'ad_snapshot_url',
   'ad_delivery_start_time',
-  'ad_delivery_stop_time'
+  'ad_delivery_stop_time',
+  'ad_creative_images',   // URLs de imagem diretas
+  'ad_creative_videos',   // URLs de vídeo diretas
 ].join(',');
 
 function getToken() {
@@ -45,36 +50,30 @@ async function fetchAds(params) {
   return d;
 }
 
-// ── MEDIA PROXY ───────────────────────────────────────────────
-// Resolve a mídia real (imagem/vídeo) de um anúncio via backend.
-// Cache na sessionStorage para não repetir requests.
-async function resolveAdMedia(ad) {
-  if (!ad.ad_snapshot_url) return null;
-  const cacheKey = 'adhelp_media_' + ad.id;
-  const cached   = sessionStorage.getItem(cacheKey);
-  if (cached) {
-    try { return JSON.parse(cached); } catch(_) {}
+// ── MEDIA HELPERS ─────────────────────────────────────────────
+// Extrai a melhor URL de mídia diretamente dos campos da API da Meta.
+// Não faz nenhuma requisição extra — usa o que já veio no JSON.
+function getAdMediaInfo(ad) {
+  // 1. Vídeo direto
+  if (ad.ad_creative_videos && ad.ad_creative_videos.length) {
+    const v = ad.ad_creative_videos[0];
+    const url = v.video_hd_url || v.video_sd_url || v.video_preview_image_url || null;
+    if (url) return { mediaUrl: url, mediaType: v.video_hd_url || v.video_sd_url ? 'video' : 'image' };
   }
-  try {
-    const endpoint = isNetlify()
-      ? `/.netlify/functions/snapshot?id=${encodeURIComponent(ad.id)}&url=${encodeURIComponent(ad.ad_snapshot_url)}`
-      : `/api/media?id=${encodeURIComponent(ad.id)}&url=${encodeURIComponent(ad.ad_snapshot_url)}`;
-    const res  = await fetch(endpoint);
-    const data = await res.json();
-    if (data.found && data.mediaUrl) {
-      const result = { mediaUrl: data.mediaUrl, mediaType: data.mediaType };
-      sessionStorage.setItem(cacheKey, JSON.stringify(result));
-      return result;
-    }
-  } catch(e) {
-    console.warn('[ADHELP] resolveAdMedia falhou:', e.message);
+  // 2. Imagem direta
+  if (ad.ad_creative_images && ad.ad_creative_images.length) {
+    const img = ad.ad_creative_images[0];
+    const url = img.original_image_url || img.resized_image_url || null;
+    if (url) return { mediaUrl: url, mediaType: 'image' };
   }
   return null;
 }
 
-// Gera HTML do preview de mídia (imagem ou vídeo) servida pelo próprio domínio.
-function buildMediaPreviewHTML(mediaInfo, fallbackSnapshotUrl, wrapClass = 'ad-iframe-wrap', onclickAttr = '') {
-  if (mediaInfo && mediaInfo.mediaUrl) {
+// Gera HTML do preview: imagem/vídeo direto, iframe como fallback, ou placeholder.
+function buildMediaPreviewHTML(ad, wrapClass = 'ad-iframe-wrap', onclickAttr = '') {
+  const mediaInfo = getAdMediaInfo(ad);
+
+  if (mediaInfo) {
     if (mediaInfo.mediaType === 'video') {
       return `<div class="${wrapClass}">
         <video class="ad-media-video" src="${mediaInfo.mediaUrl}"
@@ -86,17 +85,33 @@ function buildMediaPreviewHTML(mediaInfo, fallbackSnapshotUrl, wrapClass = 'ad-i
     }
     return `<div class="${wrapClass}">
       <img class="ad-media-img" src="${mediaInfo.mediaUrl}" alt="Preview do anúncio"
-        loading="lazy"
+        loading="lazy" crossorigin="anonymous"
+        onerror="this.parentElement.innerHTML='<div class=\\'ad-no-preview\\'><span style=\\'font-size:32px\\'>📢</span><span>Sem preview</span>${ad.ad_snapshot_url ? `<a href=\\'${ad.ad_snapshot_url}\\' target=\\'_blank\\' rel=\\'noopener\\' style=\\'margin-top:8px;font-size:11px;color:var(--primary)\\'>Abrir no Facebook ↗</a>` : ''}</div>'"
         style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit">
       ${onclickAttr ? `<div class="iframe-click-overlay" ${onclickAttr} title="Ver detalhes"></div>` : ''}
     </div>`;
   }
+
+  // Fallback: iframe do snapshot (funciona para usuários autenticados no Facebook)
+  if (ad.ad_snapshot_url) {
+    return `<div class="${wrapClass}">
+      <iframe
+        class="ad-iframe"
+        src="${ad.ad_snapshot_url}"
+        frameborder="0"
+        loading="lazy"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        scrolling="no"
+        title="Anúncio ${(ad.page_name||'').replace(/"/g,'&quot;')}">
+      </iframe>
+      ${onclickAttr ? `<div class="iframe-click-overlay" ${onclickAttr} title="Ver detalhes"></div>` : ''}
+    </div>`;
+  }
+
   return `<div class="${wrapClass}">
     <div class="ad-no-preview">
       <span style="font-size:40px">📢</span>
       <span>Sem pré-visualização</span>
-      ${fallbackSnapshotUrl ? `<a href="${fallbackSnapshotUrl}" target="_blank" rel="noopener"
-        style="margin-top:8px;font-size:11px;color:var(--primary)">Abrir no Facebook ↗</a>` : ''}
     </div>
   </div>`;
 }
@@ -355,9 +370,8 @@ function createAdCard(ad) {
   const card = document.createElement('div');
   card.className = 'ad-card';
 
-  // Renderiza placeholder imediato; mídia real carrega assincronamente
   card.innerHTML = `
-    ${buildMediaPreviewHTML(null, ad.ad_snapshot_url, 'ad-iframe-wrap',
+    ${buildMediaPreviewHTML(ad, 'ad-iframe-wrap',
         `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`)}
     <div class="ad-body">
       <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
@@ -373,19 +387,6 @@ function createAdCard(ad) {
         <button class="btn btn-primary btn-sm" onclick="saveAdFromCard('${adEncoded}')">💾 Salvar</button>
       </div>
     </div>`;
-
-  // Resolve mídia real em background e substitui o placeholder
-  if (ad.ad_snapshot_url) {
-    resolveAdMedia(ad).then(mediaInfo => {
-      if (!mediaInfo) return;
-      const wrap = card.querySelector('.ad-iframe-wrap');
-      if (!wrap) return;
-      const tmp = document.createElement('div');
-      tmp.innerHTML = buildMediaPreviewHTML(mediaInfo, ad.ad_snapshot_url, 'ad-iframe-wrap',
-        `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`);
-      wrap.replaceWith(tmp.firstElementChild);
-    });
-  }
 
   return card;
 }
@@ -413,22 +414,19 @@ function openAdDetail(encoded) {
   const trigCount = triggers.filter(t => body.toLowerCase().includes(t)).length;
   const hasSocial = ['pessoas','clientes','alunos','depoimento','avaliação','comprovado'].some(w => body.toLowerCase().includes(w));
 
-  // Placeholder do modal enquanto carrega a mídia
+  // Preview do modal — usa mídia direta ou iframe como fallback
   const modalWrapId = `modalMediaWrap_${ad.id}`;
-  const mediaSection = ad.ad_snapshot_url
-    ? `<div class="modal-layout">
-        <div>
-          <div class="modal-iframe-wrap" id="${modalWrapId}">
-            <div class="ad-no-preview"><span style="font-size:32px">⏳</span><span style="font-size:13px">Carregando...</span></div>
-          </div>
-          <div style="text-align:center;margin-top:10px">
-            <a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener"
-               class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">🔗 Abrir no Facebook Ads Library</a>
-          </div>
-        </div>
-        <div class="modal-info">`
-    : `<div style="margin-bottom:4px"><div class="no-preview-modal"><div style="text-align:center"><div style="font-size:40px;margin-bottom:8px">📢</div><p>Sem pré-visualização</p></div></div></div>
-       <div class="modal-info">`;
+  const mediaSection = `<div class="modal-layout">
+    <div>
+      <div class="modal-iframe-wrap" id="${modalWrapId}">
+        ${buildMediaPreviewHTML(ad, '', '')}
+      </div>
+      <div style="text-align:center;margin-top:10px">
+        ${ad.ad_snapshot_url ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener"
+           class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">🔗 Abrir no Facebook Ads Library</a>` : ''}
+      </div>
+    </div>
+    <div class="modal-info">`;
 
   document.getElementById('modalAdName').textContent = ad.page_name || 'Anúncio';
 
@@ -474,18 +472,6 @@ function openAdDetail(encoded) {
   </div>`;
 
   document.getElementById('adModal').classList.add('open');
-
-  // Resolve mídia em background e atualiza o placeholder do modal
-  if (ad.ad_snapshot_url) {
-    resolveAdMedia(ad).then(mediaInfo => {
-      if (!mediaInfo) return;
-      const wrap = document.getElementById(modalWrapId);
-      if (!wrap) return;
-      const tmp = document.createElement('div');
-      tmp.innerHTML = buildMediaPreviewHTML(mediaInfo, ad.ad_snapshot_url, 'modal-iframe-wrap', '');
-      wrap.replaceWith(tmp.firstElementChild);
-    });
-  }
 }
 
 function saveCurrentAd() {
@@ -560,7 +546,7 @@ function createSavedCard(ad) {
   card.className = 'ad-card';
 
   card.innerHTML = `
-    ${buildMediaPreviewHTML(null, ad.ad_snapshot_url, 'ad-iframe-wrap',
+    ${buildMediaPreviewHTML(ad, 'ad-iframe-wrap',
         `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`)}
     <div class="ad-body">
       <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
@@ -576,18 +562,6 @@ function createSavedCard(ad) {
         <button class="btn btn-danger btn-sm" onclick="removeSavedAd('${ad.id}')">🗑 Remover</button>
       </div>
     </div>`;
-
-  if (ad.ad_snapshot_url) {
-    resolveAdMedia(ad).then(mediaInfo => {
-      if (!mediaInfo) return;
-      const wrap = card.querySelector('.ad-iframe-wrap');
-      if (!wrap) return;
-      const tmp = document.createElement('div');
-      tmp.innerHTML = buildMediaPreviewHTML(mediaInfo, ad.ad_snapshot_url, 'ad-iframe-wrap',
-        `onclick="openAdDetail('${adEncoded}')" title="Ver detalhes"`);
-      wrap.replaceWith(tmp.firstElementChild);
-    });
-  }
 
   return card;
 }
