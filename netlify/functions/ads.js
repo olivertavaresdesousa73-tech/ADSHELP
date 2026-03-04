@@ -1,5 +1,23 @@
 // netlify/functions/ads.js — proxy seguro para Meta Graph API
+//
+// SOLUÇÃO DEFINITIVA PARA IMAGENS/VÍDEOS:
+// Ao invés de scraping do ad_snapshot_url, pedimos o campo "snapshot"
+// com subcampos de mídia diretamente na Graph API.
+// A Meta retorna original_image_url, resized_image_url, video_hd_url etc.
+// no JSON — sem proxy, sem scraping, sem CORS.
 const https = require('https');
+
+// Campos pedidos à API — snapshot{...} traz URLs de mídia diretamente
+const AD_FIELDS = [
+  'id',
+  'page_name',
+  'page_id',
+  'ad_creative_bodies',
+  'ad_snapshot_url',
+  'ad_delivery_start_time',
+  'ad_delivery_stop_time',
+  'snapshot{title,body{text},images{original_image_url,resized_image_url},videos{video_hd_url,video_sd_url,video_preview_image_url},cards{original_image_url,resized_image_url,video_hd_url,video_sd_url}}'
+].join(',');
 
 exports.handler = async (event) => {
   const cors = {
@@ -19,8 +37,8 @@ exports.handler = async (event) => {
     search_terms:         q.search_terms,
     ad_type:              q.ad_type || 'ALL',
     ad_reached_countries: JSON.stringify([q.country || 'BR']),
-    fields:               'id,page_name,page_id,ad_creative_bodies,ad_snapshot_url,ad_delivery_start_time,ad_delivery_stop_time',
-    limit:                q.limit  || '24',
+    fields:               AD_FIELDS,
+    limit:                q.limit || '24',
     access_token:         token
   });
   if (q.after) params.set('after', q.after);

@@ -13,7 +13,8 @@ const AD_FIELDS = [
   'ad_creative_bodies',
   'ad_snapshot_url',
   'ad_delivery_start_time',
-  'ad_delivery_stop_time'
+  'ad_delivery_stop_time',
+  'snapshot{title,body{text},images{original_image_url,resized_image_url},videos{video_hd_url,video_sd_url,video_preview_image_url},cards{original_image_url,resized_image_url,video_hd_url,video_sd_url}}'
 ].join(',');
 
 function getToken() {
@@ -47,119 +48,109 @@ async function fetchAds(params) {
 
 // ── PREVIEW DE MÍDIA ─────────────────────────────────────────────────────────
 //
-// ARQUITETURA:
-//   1. buildPreviewWrap() cria um elemento DOM REAL (não string HTML).
-//   2. O fetch só é disparado quando o elemento entra na viewport
-//      (IntersectionObserver → lazy load), evitando 24 requests simultâneos.
-//   3. O resultado é cacheado em sessionStorage (por ad.id) para não
-//      repetir requests em paginação / saved page.
-//   4. Todos os caminhos (sucesso, sem mídia, erro de rede, erro de imagem)
-//      removem o spinner e exibem o estado correto. Spinner infinito = impossível.
+// SOLUÇÃO DEFINITIVA:
+// A Meta Graph API retorna URLs de imagem/vídeo diretamente no campo "snapshot"
+// quando solicitados nos fields da query (veja ads.js).
+// Não há scraping, não há proxy, não há fetch extra — as URLs já estão no objeto ad.
 //
-// FLUXO: card inserido no DOM → IntersectionObserver detecta visibilidade
-//        → chama _loadPreview(wrap, ad) → fetch snapshot → renderiza mídia ou fallback
+// Hierarquia de mídia extraída do campo ad.snapshot:
+//   1. Vídeo  → snapshot.videos[0].video_hd_url ou video_sd_url
+//   2. Imagem → snapshot.images[0].original_image_url ou resized_image_url
+//   3. Cards  → snapshot.cards[0].original_image_url / video_hd_url
+//   4. Fallback → link para ad_snapshot_url no Facebook
 
-function _proxyImg(url) {
-  return '/.netlify/functions/imgproxy?url=' + encodeURIComponent(url);
-}
+// Extrai { imageUrl, videoUrl } do campo snapshot que vem direto da API
+function _extractMediaFromSnapshot(ad) {
+  const snap = ad.snapshot;
+  if (!snap) return { imageUrl: null, videoUrl: null };
 
-function _getCached(id) {
-  try { return JSON.parse(sessionStorage.getItem('adm_' + id)); } catch(e) { return null; }
-}
-function _setCached(id, data) {
-  try { sessionStorage.setItem('adm_' + id, JSON.stringify(data)); } catch(e) {}
-}
-
-// IntersectionObserver global — dispara lazy load ao entrar na viewport
-const _previewObserver = new IntersectionObserver(function(entries) {
-  entries.forEach(function(entry) {
-    if (!entry.isIntersecting) return;
-    const wrap = entry.target;
-    _previewObserver.unobserve(wrap);
-    const ad = wrap._adData;
-    if (ad) _loadPreview(wrap, ad);
-  });
-}, { rootMargin: '200px' }); // pré-carrega 200px antes de entrar na tela
-
-// Carrega a mídia e preenche o wrap — chamado quando o elemento é visível
-async function _loadPreview(wrap, ad) {
-  if (!ad || !ad.ad_snapshot_url) {
-    _showFallback(wrap, ad);
-    return;
+  // Vídeo
+  const videos = snap.videos || [];
+  for (const v of videos) {
+    const url = v.video_hd_url || v.video_sd_url;
+    if (url) return { imageUrl: v.video_preview_image_url || null, videoUrl: url };
   }
 
-  // Cache hit: renderiza direto sem fetch
-  const cached = _getCached(ad.id);
-  if (cached) {
-    _renderMedia(wrap, cached, ad);
-    return;
+  // Cards com vídeo
+  const cards = snap.cards || [];
+  for (const c of cards) {
+    const url = c.video_hd_url || c.video_sd_url;
+    if (url) return { imageUrl: null, videoUrl: url };
   }
 
-  try {
-    const ep  = '/.netlify/functions/snapshot?id=' + encodeURIComponent(ad.id)
-              + '&url=' + encodeURIComponent(ad.ad_snapshot_url);
-    const res  = await fetch(ep);
-    const data = res.ok ? await res.json() : { imageUrl: null, videoUrl: null };
-
-    // Sempre cacheia (incluindo "sem mídia") para não retentar
-    _setCached(ad.id, {
-      imageUrl: data.imageUrl || null,
-      videoUrl: data.videoUrl || null,
-      found:    !!(data.imageUrl || data.videoUrl)
-    });
-
-    _renderMedia(wrap, data, ad);
-  } catch(e) {
-    _showFallback(wrap, ad);
+  // Imagem
+  const images = snap.images || [];
+  for (const img of images) {
+    const url = img.original_image_url || img.resized_image_url;
+    if (url) return { imageUrl: url, videoUrl: null };
   }
+
+  // Cards com imagem
+  for (const c of cards) {
+    const url = c.original_image_url || c.resized_image_url;
+    if (url) return { imageUrl: url, videoUrl: null };
+  }
+
+  return { imageUrl: null, videoUrl: null };
 }
 
-// Renderiza imagem, vídeo ou fallback no wrap
-function _renderMedia(wrap, data, ad) {
-  if (data && data.videoUrl) {
+// Renderiza a mídia no wrap (elemento DOM já existente)
+function _renderMedia(wrap, imageUrl, videoUrl, onclickFn) {
+  wrap.innerHTML = '';
+
+  if (videoUrl) {
     const video = document.createElement('video');
-    video.className  = 'ad-preview-media';
-    video.autoplay   = true;
-    video.muted      = true;
-    video.loop       = true;
+    video.className   = 'ad-preview-media';
+    video.autoplay    = true;
+    video.muted       = true;
+    video.loop        = true;
     video.playsInline = true;
-    video.preload    = 'metadata';
-    video.onerror    = function() { _showFallback(wrap, ad); };
-    video.src        = _proxyImg(data.videoUrl);
-    _clearWrap(wrap);
+    video.preload     = 'metadata';
+    video.src         = videoUrl;
+    video.poster      = imageUrl || '';
+    video.onerror     = function() { _renderFallback(wrap, null, onclickFn); };
     wrap.appendChild(video);
-    _appendOverlay(wrap);
-    return;
-  }
-
-  if (data && data.imageUrl) {
-    const img    = new Image();
+  } else if (imageUrl) {
+    const img     = new Image();
     img.className = 'ad-preview-media';
     img.alt       = 'Criativo';
+    img.onerror   = function() { _renderFallback(wrap, null, onclickFn); };
     img.onload    = function() {
-      _clearWrap(wrap);
+      wrap.innerHTML = '';
       wrap.appendChild(img);
-      _appendOverlay(wrap);
+      if (onclickFn) {
+        const ov = document.createElement('div');
+        ov.className = 'iframe-click-overlay';
+        ov.addEventListener('click', onclickFn);
+        wrap.appendChild(ov);
+      }
     };
-    img.onerror = function() { _showFallback(wrap, ad); };
-    img.src     = _proxyImg(data.imageUrl);
+    img.src = imageUrl;
+    return; // aguarda onload antes de adicionar overlay
+  } else {
+    _renderFallback(wrap, null, onclickFn);
     return;
   }
 
-  // Nenhuma mídia encontrada
-  _showFallback(wrap, ad);
+  if (onclickFn) {
+    const ov = document.createElement('div');
+    ov.className = 'iframe-click-overlay';
+    ov.addEventListener('click', onclickFn);
+    wrap.appendChild(ov);
+  }
 }
 
-function _showFallback(wrap, ad) {
-  _clearWrap(wrap);
+function _renderFallback(wrap, ad, onclickFn) {
+  wrap.innerHTML = '';
   const div = document.createElement('div');
   div.className = 'ad-preview-no-media';
-  if (ad && ad.ad_snapshot_url) {
+  const snapshotUrl = (ad && ad.ad_snapshot_url) || (wrap._adData && wrap._adData.ad_snapshot_url);
+  if (snapshotUrl) {
     const a = document.createElement('a');
-    a.className = 'ad-preview-fb-link';
-    a.href      = ad.ad_snapshot_url;
-    a.target    = '_blank';
-    a.rel       = 'noopener';
+    a.className   = 'ad-preview-fb-link';
+    a.href        = snapshotUrl;
+    a.target      = '_blank';
+    a.rel         = 'noopener';
     a.textContent = '↗ Ver no Facebook';
     a.addEventListener('click', function(e) { e.stopPropagation(); });
     div.appendChild(a);
@@ -167,44 +158,33 @@ function _showFallback(wrap, ad) {
     div.innerHTML = '<span style="font-size:28px;opacity:.3">🖼</span>';
   }
   wrap.appendChild(div);
-  _appendOverlay(wrap);
+  if (onclickFn) {
+    const ov = document.createElement('div');
+    ov.className = 'iframe-click-overlay';
+    ov.addEventListener('click', onclickFn);
+    wrap.appendChild(ov);
+  }
 }
 
-function _clearWrap(wrap) {
-  wrap.innerHTML = '';
-}
-
-// Adiciona o overlay de clique para abrir o modal (guardado em wrap._onclickFn)
-function _appendOverlay(wrap) {
-  if (!wrap._onclickFn) return;
-  const ov = document.createElement('div');
-  ov.className = 'iframe-click-overlay';
-  ov.addEventListener('click', wrap._onclickFn);
-  wrap.appendChild(ov);
-}
-
-// Cria o elemento DOM do preview e agenda o lazy load via IntersectionObserver.
+// Cria o elemento DOM do preview, já renderizando a mídia se disponível.
 // Retorna o elemento — deve ser inserido no DOM pelo chamador.
 function buildPreviewWrap(ad, onclickFn) {
   const wrap = document.createElement('div');
-  wrap.className = 'ad-preview-wrap';
+  wrap.className  = 'ad-preview-wrap';
+  wrap._adData    = ad;
+  wrap._onclickFn = typeof onclickFn === 'function' ? onclickFn : null;
 
-  // Spinner inicial
-  const loading = document.createElement('div');
-  loading.className = 'ad-preview-loading';
-  const spinner = document.createElement('div');
-  spinner.className = 'mini-spinner';
-  loading.appendChild(spinner);
-  wrap.appendChild(loading);
+  const { imageUrl, videoUrl } = _extractMediaFromSnapshot(ad);
 
-  // Guarda metadados no elemento para uso posterior
-  wrap._adData     = ad;
-  wrap._onclickFn  = typeof onclickFn === 'function' ? onclickFn : null;
+  if (imageUrl || videoUrl) {
+    // Mídia disponível no JSON: renderiza direto, sem nenhum fetch extra
+    _renderMedia(wrap, imageUrl, videoUrl, wrap._onclickFn);
+  } else {
+    // snapshot não retornou mídia: mostra fallback imediatamente (sem spinner)
+    _renderFallback(wrap, ad, wrap._onclickFn);
+  }
 
-  // Agenda carregamento quando entrar na viewport
-  _previewObserver.observe(wrap);
-
-  return wrap; // elemento DOM real, não string
+  return wrap; // elemento DOM real, pronto para appendChild
 }
 
 // ── STATE ─────────────────────────────────────────────────────
