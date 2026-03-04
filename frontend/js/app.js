@@ -45,11 +45,19 @@ async function fetchAds(params) {
   return d;
 }
 
-// ── PREVIEW DE MÍDIA ──────────────────────────────────────────
-// Estrategia: snapshot.js (Netlify Function) busca o HTML do
-// ad_snapshot_url no servidor e extrai og:image / og:video.
-// imgproxy.js serve os bytes com CORS correto pro browser.
-// Cache em sessionStorage por ad.id para nao repetir chamadas.
+// ── PREVIEW DE MÍDIA ─────────────────────────────────────────────────────────
+//
+// ARQUITETURA:
+//   1. buildPreviewWrap() cria um elemento DOM REAL (não string HTML).
+//   2. O fetch só é disparado quando o elemento entra na viewport
+//      (IntersectionObserver → lazy load), evitando 24 requests simultâneos.
+//   3. O resultado é cacheado em sessionStorage (por ad.id) para não
+//      repetir requests em paginação / saved page.
+//   4. Todos os caminhos (sucesso, sem mídia, erro de rede, erro de imagem)
+//      removem o spinner e exibem o estado correto. Spinner infinito = impossível.
+//
+// FLUXO: card inserido no DOM → IntersectionObserver detecta visibilidade
+//        → chama _loadPreview(wrap, ad) → fetch snapshot → renderiza mídia ou fallback
 
 function _proxyImg(url) {
   return '/.netlify/functions/imgproxy?url=' + encodeURIComponent(url);
@@ -62,96 +70,141 @@ function _setCached(id, data) {
   try { sessionStorage.setItem('adm_' + id, JSON.stringify(data)); } catch(e) {}
 }
 
-async function _fetchMedia(ad) {
-  if (!ad.ad_snapshot_url) return null;
+// IntersectionObserver global — dispara lazy load ao entrar na viewport
+const _previewObserver = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    if (!entry.isIntersecting) return;
+    const wrap = entry.target;
+    _previewObserver.unobserve(wrap);
+    const ad = wrap._adData;
+    if (ad) _loadPreview(wrap, ad);
+  });
+}, { rootMargin: '200px' }); // pré-carrega 200px antes de entrar na tela
+
+// Carrega a mídia e preenche o wrap — chamado quando o elemento é visível
+async function _loadPreview(wrap, ad) {
+  if (!ad || !ad.ad_snapshot_url) {
+    _showFallback(wrap, ad);
+    return;
+  }
+
+  // Cache hit: renderiza direto sem fetch
   const cached = _getCached(ad.id);
-  if (cached) return cached;
+  if (cached) {
+    _renderMedia(wrap, cached, ad);
+    return;
+  }
+
   try {
-    const ep  = '/.netlify/functions/snapshot?id=' + encodeURIComponent(ad.id) +
-                '&url=' + encodeURIComponent(ad.ad_snapshot_url);
+    const ep  = '/.netlify/functions/snapshot?id=' + encodeURIComponent(ad.id)
+              + '&url=' + encodeURIComponent(ad.ad_snapshot_url);
     const res  = await fetch(ep);
-    if (!res.ok) return null;
-    const data = await res.json();
-    // CORREÇÃO: cacheia mesmo quando found:false para não repetir a chamada
-    // e evitar o spinner infinito em anúncios sem mídia extraível
-    if (data.imageUrl || data.videoUrl) {
-      _setCached(ad.id, data);
-      return data;
-    }
-    // Marca como "sem mídia" no cache para não retentar
-    _setCached(ad.id, { imageUrl: null, videoUrl: null, found: false });
-  } catch(e) {}
-  return null;
+    const data = res.ok ? await res.json() : { imageUrl: null, videoUrl: null };
+
+    // Sempre cacheia (incluindo "sem mídia") para não retentar
+    _setCached(ad.id, {
+      imageUrl: data.imageUrl || null,
+      videoUrl: data.videoUrl || null,
+      found:    !!(data.imageUrl || data.videoUrl)
+    });
+
+    _renderMedia(wrap, data, ad);
+  } catch(e) {
+    _showFallback(wrap, ad);
+  }
 }
 
-// Constroi o <div class="ad-preview-wrap"> com imagem/video ou spinner,
-// e dispara a busca assincrona para preencher o wrap quando chegar.
-function buildPreviewWrap(ad, onclickAttr) {
-  const wrapId = 'pw_' + ad.id;
-  onclickAttr  = onclickAttr || '';
+// Renderiza imagem, vídeo ou fallback no wrap
+function _renderMedia(wrap, data, ad) {
+  if (data && data.videoUrl) {
+    const video = document.createElement('video');
+    video.className  = 'ad-preview-media';
+    video.autoplay   = true;
+    video.muted      = true;
+    video.loop       = true;
+    video.playsInline = true;
+    video.preload    = 'metadata';
+    video.onerror    = function() { _showFallback(wrap, ad); };
+    video.src        = _proxyImg(data.videoUrl);
+    _clearWrap(wrap);
+    wrap.appendChild(video);
+    _appendOverlay(wrap);
+    return;
+  }
 
-  // HTML inicial: spinner + link fallback
-  const fallback = ad.ad_snapshot_url
-    ? '<a class="ad-preview-fb-link" href="' + ad.ad_snapshot_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ver no Facebook ↗</a>'
-    : '';
-  const html = '<div class="ad-preview-wrap" id="' + wrapId + '">'
-    + '<div class="ad-preview-loading"><div class="mini-spinner"></div>' + fallback + '</div>'
-    + (onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + '></div>' : '')
-    + '</div>';
+  if (data && data.imageUrl) {
+    const img    = new Image();
+    img.className = 'ad-preview-media';
+    img.alt       = 'Criativo';
+    img.onload    = function() {
+      _clearWrap(wrap);
+      wrap.appendChild(img);
+      _appendOverlay(wrap);
+    };
+    img.onerror = function() { _showFallback(wrap, ad); };
+    img.src     = _proxyImg(data.imageUrl);
+    return;
+  }
 
-  // Busca assincrona — preenche o wrap quando a midia chegar
-  _fetchMedia(ad).then(function(data) {
-    const wrap = document.getElementById(wrapId);
-    if (!wrap) return;
+  // Nenhuma mídia encontrada
+  _showFallback(wrap, ad);
+}
 
-    // CORREÇÃO: se não encontrou mídia, substituir spinner pelo fallback imediatamente
-    if (!data || (!data.imageUrl && !data.videoUrl)) {
-      wrap.innerHTML = fallback
-        ? '<div class="ad-preview-no-media">' + fallback + '</div>'
-        : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
-      return;
-    }
+function _showFallback(wrap, ad) {
+  _clearWrap(wrap);
+  const div = document.createElement('div');
+  div.className = 'ad-preview-no-media';
+  if (ad && ad.ad_snapshot_url) {
+    const a = document.createElement('a');
+    a.className = 'ad-preview-fb-link';
+    a.href      = ad.ad_snapshot_url;
+    a.target    = '_blank';
+    a.rel       = 'noopener';
+    a.textContent = '↗ Ver no Facebook';
+    a.addEventListener('click', function(e) { e.stopPropagation(); });
+    div.appendChild(a);
+  } else {
+    div.innerHTML = '<span style="font-size:28px;opacity:.3">🖼</span>';
+  }
+  wrap.appendChild(div);
+  _appendOverlay(wrap);
+}
 
-    if (data.videoUrl) {
-      wrap.innerHTML = '<video class="ad-preview-media" src="' + _proxyImg(data.videoUrl) + '" autoplay muted loop playsinline preload="metadata"></video>'
-        + (onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + '></div>' : '');
-      return;
-    }
-    if (data.imageUrl) {
-      const img = new Image();
-      img.className = 'ad-preview-media';
-      img.alt       = 'Criativo';
-      img.onload    = function() {
-        wrap.innerHTML = '';
-        wrap.appendChild(img);
-        if (onclickAttr) {
-          const ov = document.createElement('div');
-          ov.className = 'iframe-click-overlay';
-          ov.setAttribute('onclick', onclickAttr.replace(/^onclick="/, '').replace(/"$/, ''));
-          wrap.appendChild(ov);
-        }
-      };
-      // CORREÇÃO: no erro de carregamento da imagem, mostrar fallback sem spinner
-      img.onerror = function() {
-        if (wrap) {
-          wrap.innerHTML = fallback
-            ? '<div class="ad-preview-no-media">' + fallback + '</div>'
-            : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
-        }
-      };
-      img.src = _proxyImg(data.imageUrl);
-    }
-  }).catch(function() {
-    // CORREÇÃO: em caso de erro inesperado, remover spinner e exibir fallback
-    const wrap = document.getElementById(wrapId);
-    if (wrap) {
-      wrap.innerHTML = fallback
-        ? '<div class="ad-preview-no-media">' + fallback + '</div>'
-        : '<div class="ad-preview-no-media"><span style="font-size:28px;opacity:.3">🖼</span></div>';
-    }
-  });
+function _clearWrap(wrap) {
+  wrap.innerHTML = '';
+}
 
-  return html;
+// Adiciona o overlay de clique para abrir o modal (guardado em wrap._onclickFn)
+function _appendOverlay(wrap) {
+  if (!wrap._onclickFn) return;
+  const ov = document.createElement('div');
+  ov.className = 'iframe-click-overlay';
+  ov.addEventListener('click', wrap._onclickFn);
+  wrap.appendChild(ov);
+}
+
+// Cria o elemento DOM do preview e agenda o lazy load via IntersectionObserver.
+// Retorna o elemento — deve ser inserido no DOM pelo chamador.
+function buildPreviewWrap(ad, onclickFn) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ad-preview-wrap';
+
+  // Spinner inicial
+  const loading = document.createElement('div');
+  loading.className = 'ad-preview-loading';
+  const spinner = document.createElement('div');
+  spinner.className = 'mini-spinner';
+  loading.appendChild(spinner);
+  wrap.appendChild(loading);
+
+  // Guarda metadados no elemento para uso posterior
+  wrap._adData     = ad;
+  wrap._onclickFn  = typeof onclickFn === 'function' ? onclickFn : null;
+
+  // Agenda carregamento quando entrar na viewport
+  _previewObserver.observe(wrap);
+
+  return wrap; // elemento DOM real, não string
 }
 
 // ── STATE ─────────────────────────────────────────────────────
@@ -408,26 +461,30 @@ function createAdCard(ad) {
     `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(255,255,255,.07);color:${i.color}">${i.icon} ${i.label}</span>`
   ).join('');
 
-  const previewHTML = buildPreviewWrap(ad, `onclick="openAdDetail('${adEncoded}')"`);
-
   const card = document.createElement('div');
   card.className = 'ad-card';
-  card.innerHTML = `
-    ${previewHTML}
-    <div class="ad-body">
-      <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
-      ${indHTML ? `<div class="ad-indicators">${indHTML}</div>` : ''}
-      <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Texto não disponível</em>'}</div>
-      <div class="ad-meta-row">
-        <span class="ad-date">📅 ${date}</span>
-        ${scoreBadge(score)}
-      </div>
-      <div class="ad-card-footer">
-        <div class="score-ring ${scoreClass(score)}">${score}</div>
-        <button class="btn btn-ghost btn-sm" onclick="openAdDetail('${adEncoded}')">👁 Ver</button>
-        <button class="btn btn-primary btn-sm" onclick="saveAdFromCard('${adEncoded}')">💾 Salvar</button>
-      </div>
+
+  // buildPreviewWrap agora retorna elemento DOM — inserir diretamente
+  const previewEl = buildPreviewWrap(ad, function() { openAdDetail(adEncoded); });
+  card.appendChild(previewEl);
+
+  const body_div = document.createElement('div');
+  body_div.className = 'ad-body';
+  body_div.innerHTML = `
+    <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
+    ${indHTML ? `<div class="ad-indicators">${indHTML}</div>` : ''}
+    <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Texto não disponível</em>'}</div>
+    <div class="ad-meta-row">
+      <span class="ad-date">📅 ${date}</span>
+      ${scoreBadge(score)}
+    </div>
+    <div class="ad-card-footer">
+      <div class="score-ring ${scoreClass(score)}">${score}</div>
+      <button class="btn btn-ghost btn-sm" onclick="openAdDetail('${adEncoded}')">👁 Ver</button>
+      <button class="btn btn-primary btn-sm" onclick="saveAdFromCard('${adEncoded}')">💾 Salvar</button>
     </div>`;
+  card.appendChild(body_div);
+
   return card;
 }
 
@@ -454,61 +511,64 @@ function openAdDetail(encoded) {
   const trigCount = triggers.filter(t => body.toLowerCase().includes(t)).length;
   const hasSocial = ['pessoas','clientes','alunos','depoimento','avaliação','comprovado'].some(w => body.toLowerCase().includes(w));
 
-  // Preview do modal — usa buildPreviewWrap (sem iframe)
-  const iframeSection = `<div class="modal-layout">
-    <div>
-      <div class="modal-iframe-wrap">
-        ${buildPreviewWrap(ad, '')}
-      </div>
-      <div style="text-align:center;margin-top:10px">
-        ${ad.ad_snapshot_url ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener"
-           class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">🔗 Abrir no Facebook Ads Library</a>` : ''}
-      </div>
-    </div>
-    <div class="modal-info">`;
+  // Preview do modal — buildPreviewWrap retorna elemento DOM
+  const previewEl = buildPreviewWrap(ad, null);
+  previewEl.style.cssText = 'width:100%;max-height:420px;aspect-ratio:9/16';
 
   document.getElementById('modalAdName').textContent = ad.page_name || 'Anúncio';
 
   document.getElementById('modalAdBody').innerHTML = `
-    ${iframeSection}
-      <div class="modal-ad-header">
-        <div class="score-ring ${scoreClass(score)}" style="width:52px;height:52px;font-size:16px;flex-shrink:0">${score}</div>
-        <div>
-          <div class="modal-ad-title">${ad.page_name||'Página'}</div>
-          <div class="modal-ad-sub">📅 Ativo desde: ${date}</div>
-          <div class="inds-row" style="margin-top:6px">
-            ${scoreBadge(score)}
-            ${indicators.map(i=>`<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(255,255,255,.07);color:${i.color}">${i.icon} ${i.label}</span>`).join('')}
-          </div>
+    <div class="modal-layout">
+      <div>
+        <div class="modal-iframe-wrap" id="modal-preview-slot"></div>
+        <div style="text-align:center;margin-top:10px">
+          ${ad.ad_snapshot_url ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener"
+             class="btn btn-ghost btn-sm" style="width:100%;justify-content:center">🔗 Abrir no Facebook Ads Library</a>` : ''}
         </div>
       </div>
+      <div class="modal-info">
+        <div class="modal-ad-header">
+          <div class="score-ring ${scoreClass(score)}" style="width:52px;height:52px;font-size:16px;flex-shrink:0">${score}</div>
+          <div>
+            <div class="modal-ad-title">${ad.page_name||'Página'}</div>
+            <div class="modal-ad-sub">📅 Ativo desde: ${date}</div>
+            <div class="inds-row" style="margin-top:6px">
+              ${scoreBadge(score)}
+              ${indicators.map(i=>`<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(255,255,255,.07);color:${i.color}">${i.icon} ${i.label}</span>`).join('')}
+            </div>
+          </div>
+        </div>
 
-      <div class="info-section-title" style="margin-top:14px">Copy do Anúncio</div>
-      <div class="copy-box" style="max-height:160px;overflow-y:auto">${body||'Texto não disponível'}</div>
+        <div class="info-section-title" style="margin-top:14px">Copy do Anúncio</div>
+        <div class="copy-box" style="max-height:160px;overflow-y:auto">${body||'Texto não disponível'}</div>
 
-      <div class="analysis-grid" style="margin-top:14px">
-        ${[
-          ['⏱ Dias Ativo',   days+'d'],
-          ['📝 Tamanho',      body.length>200?'Longo':body.length>80?'Médio':'Curto'],
-          ['🔥 Gatilhos',     trigCount+' detectados'],
-          ['👥 Prova Social', hasSocial?'Presente':'Ausente'],
-          ['🆔 Page ID',      ad.page_id||'N/D'],
-          ['📋 Ad ID',        (ad.id||'N/D').slice(0,16)]
-        ].map(([k,v])=>`
-          <div class="ai-item">
-            <div class="ai-k">${k}</div>
-            <div class="ai-v">${v}</div>
-          </div>`).join('')}
+        <div class="analysis-grid" style="margin-top:14px">
+          ${[
+            ['⏱ Dias Ativo',   days+'d'],
+            ['📝 Tamanho',      body.length>200?'Longo':body.length>80?'Médio':'Curto'],
+            ['🔥 Gatilhos',     trigCount+' detectados'],
+            ['👥 Prova Social', hasSocial?'Presente':'Ausente'],
+            ['🆔 Page ID',      ad.page_id||'N/D'],
+            ['📋 Ad ID',        (ad.id||'N/D').slice(0,16)]
+          ].map(([k,v])=>`
+            <div class="ai-item">
+              <div class="ai-k">${k}</div>
+              <div class="ai-v">${v}</div>
+            </div>`).join('')}
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveCurrentAd()">💾 Salvar</button>
+          ${ad.ad_snapshot_url
+            ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener" class="btn btn-ghost" style="flex:1;justify-content:center">🔗 Facebook</a>`
+            : ''}
+        </div>
       </div>
+    </div>`;
 
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveCurrentAd()">💾 Salvar</button>
-        ${ad.ad_snapshot_url
-          ? `<a href="${ad.ad_snapshot_url}" target="_blank" rel="noopener" class="btn btn-ghost" style="flex:1;justify-content:center">🔗 Facebook</a>`
-          : ''}
-      </div>
-    </div>
-  </div>`;
+  // Inserir o elemento DOM do preview no slot após o innerHTML ser setado
+  const slot = document.getElementById('modal-preview-slot');
+  if (slot) slot.appendChild(previewEl);
 
   document.getElementById('adModal').classList.add('open');
 }
@@ -581,26 +641,30 @@ function createSavedCard(ad) {
   const savedAt = ad._savedAt ? new Date(ad._savedAt).toLocaleDateString('pt-BR') : '';
   const adEncoded = encodeURIComponent(JSON.stringify(ad));
 
-  const previewHTML = buildPreviewWrap(ad, `onclick="openAdDetail('${adEncoded}')"`);
-
   const card = document.createElement('div');
   card.className = 'ad-card';
-  card.innerHTML = `
-    ${previewHTML}
-    <div class="ad-body">
-      <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
-      <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Sem texto</em>'}</div>
-      <div class="ad-meta-row">
-        <span class="ad-date">📅 Ativo: ${date}</span>
-        ${savedAt ? `<span class="ad-date">💾 ${savedAt}</span>` : ''}
-      </div>
-      <div class="ad-meta-row" style="margin-top:2px">${scoreBadge(score)}</div>
-      <div class="ad-card-footer">
-        <div class="score-ring ${scoreClass(score)}">${score}</div>
-        <button class="btn btn-ghost btn-sm" onclick="openAdDetail('${adEncoded}')">👁 Ver</button>
-        <button class="btn btn-danger btn-sm" onclick="removeSavedAd('${ad.id}')">🗑 Remover</button>
-      </div>
+
+  // buildPreviewWrap retorna elemento DOM
+  const previewEl = buildPreviewWrap(ad, function() { openAdDetail(adEncoded); });
+  card.appendChild(previewEl);
+
+  const body_div = document.createElement('div');
+  body_div.className = 'ad-body';
+  body_div.innerHTML = `
+    <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
+    <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Sem texto</em>'}</div>
+    <div class="ad-meta-row">
+      <span class="ad-date">📅 Ativo: ${date}</span>
+      ${savedAt ? `<span class="ad-date">💾 ${savedAt}</span>` : ''}
+    </div>
+    <div class="ad-meta-row" style="margin-top:2px">${scoreBadge(score)}</div>
+    <div class="ad-card-footer">
+      <div class="score-ring ${scoreClass(score)}">${score}</div>
+      <button class="btn btn-ghost btn-sm" onclick="openAdDetail('${adEncoded}')">👁 Ver</button>
+      <button class="btn btn-danger btn-sm" onclick="removeSavedAd('${ad.id}')">🗑 Remover</button>
     </div>`;
+  card.appendChild(body_div);
+
   return card;
 }
 
