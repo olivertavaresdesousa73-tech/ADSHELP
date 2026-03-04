@@ -17,8 +17,6 @@ const AD_FIELDS = [
   'ad_snapshot_url',
   'ad_delivery_start_time',
   'ad_delivery_stop_time',
-  'ad_creative_images',   // URLs de imagem diretas
-  'ad_creative_videos',   // URLs de vídeo diretas
 ].join(',');
 
 function getToken() {
@@ -51,72 +49,52 @@ async function fetchAds(params) {
 }
 
 // ── MEDIA HELPERS ─────────────────────────────────────────────
-// Extrai a melhor URL de mídia diretamente dos campos da API da Meta.
-// Não faz nenhuma requisição extra — usa o que já veio no JSON.
-function getAdMediaInfo(ad) {
-  // 1. Vídeo direto
-  if (ad.ad_creative_videos && ad.ad_creative_videos.length) {
-    const v = ad.ad_creative_videos[0];
-    const url = v.video_hd_url || v.video_sd_url || v.video_preview_image_url || null;
-    if (url) return { mediaUrl: url, mediaType: v.video_hd_url || v.video_sd_url ? 'video' : 'image' };
+// A Meta Ads Library API não expõe URLs diretas de imagem/vídeo.
+// O único recurso disponível é o ad_snapshot_url (iframe).
+
+// Gera o preview correto usando iframe do ad_snapshot_url.
+function buildMediaPreviewHTML(ad, wrapClass, onclickAttr) {
+  wrapClass   = wrapClass   || 'ad-iframe-wrap';
+  onclickAttr = onclickAttr || '';
+
+  if (!ad.ad_snapshot_url) {
+    return '<div class="' + wrapClass + '"><div class="ad-no-preview"><span style="font-size:40px">📢</span><span>Sem pré-visualização</span></div></div>';
   }
-  // 2. Imagem direta
-  if (ad.ad_creative_images && ad.ad_creative_images.length) {
-    const img = ad.ad_creative_images[0];
-    const url = img.original_image_url || img.resized_image_url || null;
-    if (url) return { mediaUrl: url, mediaType: 'image' };
-  }
-  return null;
+
+  const title   = (ad.page_name || '').replace(/"/g, '&quot;');
+  const snapUrl  = ad.ad_snapshot_url;
+  const overlay  = onclickAttr ? '<div class="iframe-click-overlay" ' + onclickAttr + ' title="Ver detalhes"></div>' : '';
+  // O iframe da Meta só exibe o criativo quando o usuário está logado no Facebook.
+  // Mostramos o iframe normalmente + um fallback visual com link caso o iframe fique vazio.
+  const fallback = '<div class="iframe-fallback"><span style="font-size:28px">🖼</span><span>Faça login no Facebook para ver o preview</span><a href="' + snapUrl + '" target="_blank" rel="noopener" class="iframe-fallback-link">Abrir anúncio ↗</a></div>';
+  return '<div class="' + wrapClass + ' iframe-wrap-container" data-snap="' + snapUrl + '">' +
+    '<iframe class="ad-iframe" src="' + snapUrl + '" frameborder="0" loading="lazy" ' +
+    'sandbox="allow-scripts allow-same-origin allow-popups allow-forms" scrolling="no" ' +
+    'title="Anúncio ' + title + '" ' +
+    'onload="checkIframeLoaded(this)"></iframe>' +
+    fallback + overlay + '</div>';
 }
 
-// Gera HTML do preview: imagem/vídeo direto, iframe como fallback, ou placeholder.
-function buildMediaPreviewHTML(ad, wrapClass = 'ad-iframe-wrap', onclickAttr = '') {
-  const mediaInfo = getAdMediaInfo(ad);
-
-  if (mediaInfo) {
-    if (mediaInfo.mediaType === 'video') {
-      return `<div class="${wrapClass}">
-        <video class="ad-media-video" src="${mediaInfo.mediaUrl}"
-          autoplay muted loop playsinline preload="metadata"
-          style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit">
-        </video>
-        ${onclickAttr ? `<div class="iframe-click-overlay" ${onclickAttr} title="Ver detalhes"></div>` : ''}
-      </div>`;
+// Detecta iframe vazio (Meta bloqueia sem login) e exibe fallback.
+function checkIframeLoaded(iframe) {
+  try {
+    // Se o iframe carregou mas está em branco (cross-origin), mostramos o fallback
+    const wrap = iframe.closest('.iframe-wrap-container');
+    if (!wrap) return;
+    // Tenta acessar o contentDocument — se jogar erro de cross-origin, o iframe carregou conteúdo real
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    // Se chegou aqui sem erro mas o body está vazio, é a tela de login do Facebook
+    if (!doc || !doc.body || doc.body.innerHTML.trim() === '') {
+      wrap.classList.add('iframe-empty');
     }
-    return `<div class="${wrapClass}">
-      <img class="ad-media-img" src="${mediaInfo.mediaUrl}" alt="Preview do anúncio"
-        loading="lazy" crossorigin="anonymous"
-        onerror="this.parentElement.innerHTML='<div class=\\'ad-no-preview\\'><span style=\\'font-size:32px\\'>📢</span><span>Sem preview</span>${ad.ad_snapshot_url ? `<a href=\\'${ad.ad_snapshot_url}\\' target=\\'_blank\\' rel=\\'noopener\\' style=\\'margin-top:8px;font-size:11px;color:var(--primary)\\'>Abrir no Facebook ↗</a>` : ''}</div>'"
-        style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit">
-      ${onclickAttr ? `<div class="iframe-click-overlay" ${onclickAttr} title="Ver detalhes"></div>` : ''}
-    </div>`;
+  } catch(e) {
+    // Cross-origin: iframe carregou conteúdo real da Meta — esconde o fallback
+    const wrap = iframe.closest('.iframe-wrap-container');
+    if (wrap) wrap.classList.add('iframe-loaded');
   }
-
-  // Fallback: iframe do snapshot (funciona para usuários autenticados no Facebook)
-  if (ad.ad_snapshot_url) {
-    return `<div class="${wrapClass}">
-      <iframe
-        class="ad-iframe"
-        src="${ad.ad_snapshot_url}"
-        frameborder="0"
-        loading="lazy"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-        scrolling="no"
-        title="Anúncio ${(ad.page_name||'').replace(/"/g,'&quot;')}">
-      </iframe>
-      ${onclickAttr ? `<div class="iframe-click-overlay" ${onclickAttr} title="Ver detalhes"></div>` : ''}
-    </div>`;
-  }
-
-  return `<div class="${wrapClass}">
-    <div class="ad-no-preview">
-      <span style="font-size:40px">📢</span>
-      <span>Sem pré-visualização</span>
-    </div>
-  </div>`;
 }
 
-// ── STATE ─────────────────────────────────────────────────────
+
 let state = {
   theme:            localStorage.getItem('adhelp_theme') || 'dark',
   sidebarCollapsed: false,

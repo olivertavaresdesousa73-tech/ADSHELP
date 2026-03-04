@@ -25,8 +25,6 @@ exports.handler = async (event) => {
     'ad_snapshot_url',
     'ad_delivery_start_time',
     'ad_delivery_stop_time',
-    'ad_creative_images',   // URLs de imagem diretas
-    'ad_creative_videos',   // URLs de vídeo diretas
   ].join(',');
 
   const params = new URLSearchParams({
