@@ -1,0 +1,8 @@
+Coloque sua logo aqui com o nome:
+
+  logo.png
+
+Tamanho recomendado: 64x64px ou 128x128px
+Formatos aceitos: PNG (recomendado), JPG, SVG, WEBP
+
+A logo aparecerá automaticamente no canto superior esquerdo da sidebar.
