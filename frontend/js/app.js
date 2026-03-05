@@ -259,10 +259,9 @@ document.documentElement.setAttribute('data-theme', state.theme);
 
 // ── NAVIGATION ────────────────────────────────────────────────
 const PAGE_TITLES = {
-  dashboard:'Dashboard', intelligence:'Inteligência — Ad Library',
-  saved:'Anúncios Salvos', strategy:'Estratégia', map:'Mapa Mental',
-  planning:'Planejamento', settings:'Configurações',
-  privacy:'Política de Privacidade', terms:'Termos de Uso'
+  dashboard:'Dashboard', intelligence:'Espionar Tráfego',
+  strategy:'Estratégia', map:'Mapa Mental',
+  settings:'Configurações', privacy:'Privacidade', terms:'Termos de Uso'
 };
 
 function navigate(page) {
@@ -287,12 +286,13 @@ function toggleSidebar() {
   state.sidebarCollapsed = !state.sidebarCollapsed;
   document.getElementById('sidebar').classList.toggle('collapsed', state.sidebarCollapsed);
   document.getElementById('mainContent').classList.toggle('expanded', state.sidebarCollapsed);
-  document.getElementById('sidebarToggle').textContent = state.sidebarCollapsed ? '›' : '‹';
+  // sidebar arrow handled by CSS transform
 }
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
 }
 function toggleTheme() {
+  // Animate the switch thumb before changing theme
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', state.theme);
   localStorage.setItem('adhelp_theme', state.theme);
@@ -404,8 +404,6 @@ async function searchAds() {
     analyzeAds(ads);
 
     // Registra anúncios como pendentes no media-ingest para a extensão processar
-    _registerPendingAds(ads, term, state.currentSearch.country);
-
     renderResults(container, ads);
     showToast(`${ads.length} anúncios encontrados!`, 'success');
   } catch (err) {
@@ -421,155 +419,7 @@ async function searchAds() {
 
 // Registra anúncios no media-ingest e abre o Facebook Ads Library
 // na mesma aba para a extensão Chrome capturar as imagens em tempo real
-// ── CAPTURA AUTOMÁTICA ──────────────────────────────────────────────────────
-// Igual ao Adminer: quando o usuário busca, a extensão abre uma tab invisível
-// do Facebook Ads Library com o mesmo termo, faz auto-scroll automático,
-// captura todas as imagens/vídeos e fecha a tab. Tudo transparente.
 
-let _pollTimer = null;
-
-function _registerPendingAds(ads, term, country) {
-  const extToken = localStorage.getItem('adhelp_ext_token');
-  const extId    = localStorage.getItem('adhelp_ext_id');
-
-  // 1. Registra IDs no backend como pendentes (sem imagem)
-  if (extToken) {
-    const pending = ads.map(ad => ({
-      adId:    String(ad.id),
-      pageId:  String(ad.page_id || ''),
-      images:  [], videos: [],
-    }));
-    fetch('/.netlify/functions/media-ingest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-AdHelp-Token': extToken },
-      body: JSON.stringify({ ads: pending }),
-    }).catch(() => {});
-  }
-
-  // 2. URL do Facebook Ads Library com o termo já preenchido
-  const fbUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${country}&q=${encodeURIComponent(term)}&media_type=all`;
-
-  // 3. Pede à extensão para abrir tab invisível + auto-scroll
-  const canUseExtAPI = extId && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage;
-
-  if (canUseExtAPI) {
-    try {
-      chrome.runtime.sendMessage(extId, { type: 'OPEN_CAPTURE_TAB', searchUrl: fbUrl }, (resp) => {
-        const err = chrome.runtime.lastError;
-        if (err || !resp?.ok) {
-          // Extensão bloqueou popup — fallback: abre em nova aba normal
-          _showBanner('manual', fbUrl, ads.length);
-        } else {
-          // Tab aberta com sucesso — captura em andamento!
-          _showBanner('auto', fbUrl, ads.length);
-          _pollForMedia(ads.map(a => String(a.id)));
-        }
-      });
-    } catch(e) {
-      _showBanner('manual', fbUrl, ads.length);
-    }
-  } else if (extToken) {
-    _showBanner('manual', fbUrl, ads.length);
-  } else {
-    _showBanner('noext', fbUrl, ads.length);
-  }
-}
-
-// ── POLLING: verifica chegada de mídias novas ────────────────────────────────
-function _pollForMedia(adIds) {
-  clearInterval(_pollTimer);
-  if (!adIds?.length) return;
-  const extToken = localStorage.getItem('adhelp_ext_token');
-  if (!extToken) return;
-
-  let tries = 0;
-  _pollTimer = setInterval(async () => {
-    if (++tries > 30) { clearInterval(_pollTimer); return; }
-    try {
-      const r = await fetch(
-        `/.netlify/functions/media-ingest?adId=${encodeURIComponent(adIds[0])}`,
-        { headers: { 'X-AdHelp-Token': extToken } }
-      );
-      if (!r.ok) return;
-      const d = await r.json();
-      if (d?.images?.length || d?.videos?.length) {
-        // Chegou! Atualiza todos os cards
-        Object.keys(_previewCache).forEach(k => delete _previewCache[k]);
-        document.querySelectorAll('.ad-preview-wrap').forEach(wrap => {
-          if (wrap._adData) {
-            wrap.innerHTML = '<div class="ad-preview-loading"><div class="mini-spinner"></div></div>';
-            _loadPreview(wrap);
-          }
-        });
-        _updateBanner('done');
-        clearInterval(_pollTimer);
-      }
-    } catch(e) {}
-  }, 2000);
-}
-
-// ── BANNER DE STATUS ─────────────────────────────────────────────────────────
-function _showBanner(mode, fbUrl, count) {
-  const old = document.getElementById('ext-capture-banner');
-  if (old) old.remove();
-
-  const b = document.createElement('div');
-  b.id = 'ext-capture-banner';
-  b.style.cssText = 'background:linear-gradient(135deg,#6c47ff15,#a855f715);border:1px solid #6c47ff30;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;';
-
-  const close = `<button onclick="document.getElementById('ext-capture-banner').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;margin-left:auto;padding:0 2px">×</button>`;
-
-  if (mode === 'auto') {
-    b.innerHTML = `
-      <div id="ext-dot" style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e66;animation:pulse 1.5s infinite;flex-shrink:0"></div>
-      <div style="flex:1;min-width:0">
-        <strong style="font-size:13px;color:#22c55e" id="ext-banner-title">⚡ Capturando imagens automaticamente...</strong>
-        <p style="font-size:11px;color:var(--text3);margin-top:2px" id="ext-banner-sub">
-          A extensão abriu o Facebook em segundo plano e está capturando os criativos
-        </p>
-      </div>
-      ${close}`;
-  } else if (mode === 'manual') {
-    b.innerHTML = `
-      <span style="font-size:20px;flex-shrink:0">⚡</span>
-      <div style="flex:1;min-width:0">
-        <strong style="font-size:13px;color:#a855f7">Extensão pronta — clique para capturar</strong>
-        <p style="font-size:11px;color:var(--text3);margin-top:2px">
-          Abre o Facebook com o termo já preenchido — extensão captura automaticamente
-        </p>
-      </div>
-      <a href="${fbUrl}" target="_blank" onclick="_pollForMedia(Array.from(document.querySelectorAll('[data-ad-id]')).map(e=>e.dataset.adId))" style="background:linear-gradient(135deg,#6c47ff,#a855f7);color:#fff;text-decoration:none;font-size:11px;font-weight:700;padding:8px 14px;border-radius:7px;white-space:nowrap;flex-shrink:0">
-        🔍 Abrir Facebook (${count} ads)
-      </a>
-      ${close}`;
-  } else {
-    b.innerHTML = `
-      <span style="font-size:20px;flex-shrink:0">🧩</span>
-      <div style="flex:1;min-width:0">
-        <strong style="font-size:13px;color:var(--text1)">Instale a extensão para ver imagens e vídeos</strong>
-        <p style="font-size:11px;color:var(--text3);margin-top:2px">
-          A extensão captura criativos automaticamente em segundo plano
-        </p>
-      </div>
-      <button onclick="navigate('settings')" style="background:linear-gradient(135deg,#6c47ff,#a855f7);color:#fff;border:none;font-size:11px;font-weight:700;padding:8px 14px;border-radius:7px;cursor:pointer;flex-shrink:0">
-        ⚙️ Configurar
-      </button>
-      ${close}`;
-  }
-
-  const container = document.getElementById('searchResults');
-  container.parentNode.insertBefore(b, container);
-}
-
-function _updateBanner(status) {
-  if (status !== 'done') return;
-  const title = document.getElementById('ext-banner-title');
-  const sub   = document.getElementById('ext-banner-sub');
-  const dot   = document.getElementById('ext-dot');
-  if (title) { title.textContent = '✓ Imagens capturadas com sucesso!'; title.style.color='#22c55e'; }
-  if (sub)   { sub.textContent   = 'Os criativos já aparecem nos cards acima'; }
-  if (dot)   { dot.style.animation='none'; }
-}
 async function loadMore() {
   if (!state.nextCursor || state.loadingMore) return;
   state.loadingMore = true;
@@ -600,71 +450,92 @@ function loadMoreBtnHTML() {
 
 function renderResults(container, ads) {
   if (!ads.length) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>Nenhum anúncio encontrado</h3><p>Tente outro termo ou país</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div><h3>Nenhum anúncio encontrado</h3><p>Tente outro termo ou país</p></div>`;
     return;
   }
-  const topPages = Object.entries(state.pageFrequency).sort((a,b)=>b[1].count-a[1].count).slice(0,3);
-  const summaryHTML = topPages.length ? `<div style="font-size:12px;color:var(--text3)">
-    🏆 Mais ativo: <strong style="color:var(--accent)">${topPages[0][1].name}</strong> (${topPages[0][1].count} anúncios)
-  </div>` : '';
+
+  const topPages = Object.entries(state.pageFrequency||{}).sort((a,b)=>b[1].count-a[1].count).slice(0,1);
+  const summary  = topPages.length ? `<span style="font-size:12px;color:var(--text3)">Mais ativo: <strong style="color:var(--accent)">${topPages[0][1].name}</strong></span>` : '';
 
   container.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px">
-      <span style="font-size:14px;color:var(--text2)">
-        <strong style="color:var(--text)">${ads.length}</strong> anúncios para 
-        <strong style="color:var(--accent)">"${state.currentSearch.term}"</strong>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <span style="font-size:13px;color:var(--text2)">
+        <strong style="color:var(--text1);font-family:'Syne',sans-serif">${ads.length}</strong>
+        anúncios para <strong style="color:var(--accent)">"${state.currentSearch?.term||''}"</strong>
       </span>
-      ${summaryHTML}
+      ${summary}
     </div>
-    <div id="adsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:20px"></div>
-    <div id="loadMoreFooter">${state.nextCursor ? loadMoreBtnHTML() : ''}</div>`;
+    <div class="ads-grid" id="adsGrid"></div>
+    <div id="loadMoreFooter" style="display:flex;justify-content:center;padding:24px 0">
+      ${state.nextCursor ? '<button class="load-more-btn" id="loadMoreBtn" onclick="loadMore()">Carregar mais</button>' : ''}
+    </div>`;
 
   const grid = document.getElementById('adsGrid');
   ads.forEach(ad => grid.appendChild(createAdCard(ad)));
 }
 
-// ── AD CARD ───────────────────────────────────────────────────
 function createAdCard(ad) {
-  const score = scoreAd(ad);
-  const body  = ad.ad_creative_bodies?.[0] || '';
-  const date  = ad.ad_delivery_start_time
-    ? new Date(ad.ad_delivery_start_time).toLocaleDateString('pt-BR') : 'N/D';
-  const indicators = getAdIndicators(ad);
+  const score    = scoreAd(ad);
+  const body     = (ad.ad_creative_bodies?.[0] || '').substring(0, 120);
+  const adEnc    = encodeURIComponent(JSON.stringify(ad));
+  const scoreClass = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
 
-  // Encode for onclick — escapar corretamente
-  const adEncoded = encodeURIComponent(JSON.stringify(ad));
+  // Extract thumbnail from snapshot if available
+  const snap    = ad.snapshot || {};
+  const imgUrl  = snap.images?.[0]?.original_image_url || snap.images?.[0]?.resized_image_url || null;
+  const vidUrl  = snap.videos?.[0]?.video_hd_url || snap.videos?.[0]?.video_sd_url || null;
+  const vidThumb= snap.videos?.[0]?.video_preview_image_url || null;
+  const thumbUrl = vidThumb || imgUrl || null;
+  const isVideo  = !!vidUrl;
 
-  const indHTML = indicators.slice(0,3).map(i =>
-    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(255,255,255,.07);color:${i.color}">${i.icon} ${i.label}</span>`
-  ).join('');
+  // Page thumbnail fallback: graph.facebook.com/{page_id}/picture
+  const pageThumb = ad.page_id ? `https://graph.facebook.com/${ad.page_id}/picture?type=square` : null;
 
   const card = document.createElement('div');
   card.className = 'ad-card';
 
-  // buildPreviewWrap agora retorna elemento DOM — inserir diretamente
-  const previewEl = buildPreviewWrap(ad, function() { openAdDetail(adEncoded); });
-  card.appendChild(previewEl);
+  // — THUMBNAIL —
+  const thumbDiv = document.createElement('div');
+  thumbDiv.className = 'ad-thumb';
 
-  const body_div = document.createElement('div');
-  body_div.className = 'ad-body';
-  body_div.innerHTML = `
-    <div class="ad-page-name">${ad.page_name||'Página Anunciante'}</div>
-    ${indHTML ? `<div class="ad-indicators">${indHTML}</div>` : ''}
-    <div class="ad-copy-text">${body||'<em style="color:var(--text3)">Texto não disponível</em>'}</div>
-    <div class="ad-meta-row">
-      <span class="ad-date">📅 ${date}</span>
-      ${scoreBadge(score)}
-    </div>
-    <div class="ad-card-footer">
-      <div class="score-ring ${scoreClass(score)}">${score}</div>
-      <button class="btn btn-ghost btn-sm" onclick="openAdDetail('${adEncoded}')">👁 Ver</button>
-      <button class="btn btn-primary btn-sm" onclick="saveAdFromCard('${adEncoded}')">💾 Salvar</button>
+  if (thumbUrl) {
+    thumbDiv.innerHTML = `<img src="${thumbUrl}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=\'ad-thumb-placeholder\'><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3\"/><circle cx=\"8.5\" cy=\"8.5\" r=\"1.5\"/><polyline points=\"21 15 16 10 5 21\"/></svg><span>Sem imagem</span></div>'">`;
+    if (isVideo) thumbDiv.innerHTML += `<div class="video-badge">▶ VIDEO</div><div class="play-overlay"><svg viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="10" fill="rgba(0,0,0,0.5)"/><polygon points="10 8 16 12 10 16 10 8" fill="white"/></svg></div>`;
+  } else if (pageThumb) {
+    // Use page profile photo as thumbnail while styled differently
+    thumbDiv.innerHTML = `
+      <div class="ad-thumb-placeholder">
+        <img src="${pageThumb}" loading="lazy" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--border)"
+          onerror="this.style.display='none'">
+        <span style="margin-top:6px;font-size:10px">${ad.page_name||'Anúncio'}</span>
+      </div>`;
+  } else {
+    thumbDiv.innerHTML = `<div class="ad-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Sem prévia</span></div>`;
+  }
+
+  card.appendChild(thumbDiv);
+
+  // — BODY —
+  const bodyDiv = document.createElement('div');
+  bodyDiv.className = 'ad-body';
+  bodyDiv.innerHTML = `
+    <div class="ad-page">${ad.page_name || 'Anunciante'}</div>
+    <div class="ad-text">${body || '<em style="color:var(--text3)">Sem texto</em>'}</div>
+    <div class="ad-footer">
+      <span class="score-chip ${scoreClass}">${score}</span>
+      <div class="ad-actions">
+        <button class="ad-btn" onclick="openAdDetail('${adEnc}')" title="Ver detalhes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="ad-btn" onclick="saveAdFromCard('${adEnc}')" title="Salvar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
+      </div>
     </div>`;
-  card.appendChild(body_div);
 
+  card.appendChild(bodyDiv);
   return card;
 }
-
 function saveAdFromCard(encoded) {
   try { doSaveAd(JSON.parse(decodeURIComponent(encoded))); }
   catch(_) { showToast('Erro ao salvar','error'); }

@@ -3,567 +3,276 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ADHELP — Inteligência de Anúncios</title>
-<link rel="icon" href="images/logo.png" type="image/png">
+<title>ADHELP — Espionar Tráfego</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- ═══ MODAL: Ad Detail ═══ -->
-<div class="modal-overlay" id="adModal">
-  <div class="modal">
-    <div class="modal-header">
-      <span id="modalAdName">Anúncio</span>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick="closeModal('adModal')">✕</button>
-    </div>
-    <div class="modal-body" id="modalAdBody"></div>
-  </div>
+<div class="modal-overlay" id="adModal" onclick="if(event.target===this)closeModal('adModal')">
+  <div class="modal"><div class="modal-header"><span id="modalAdName">Anúncio</span><button class="icon-btn" onclick="closeModal('adModal')">✕</button></div><div class="modal-body" id="modalAdBody"></div></div>
 </div>
 
 <div class="app">
-
-  <!-- ═══ SIDEBAR ═══ -->
   <aside class="sidebar" id="sidebar">
-    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">‹</button>
-
     <div class="sidebar-logo">
-      <img src="images/logo.png" alt="Logo"
-        onerror="this.style.display='none'"
-        width="32" height="32">
-      <div class="logo-text">AD<span>HELP</span></div>
+      <div class="logo-mark">AD</div>
+      <span class="logo-text">HELP</span>
     </div>
-
     <nav class="sidebar-nav">
-      <div class="sst">PRINCIPAL</div>
       <a class="nav-item active" onclick="navigate('dashboard')" href="#">
-        <div class="nav-icon">📊</div><span class="nav-label">Dashboard</span></a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>Dashboard</span>
+      </a>
       <a class="nav-item" onclick="navigate('intelligence')" href="#">
-        <div class="nav-icon">🔍</div><span class="nav-label">Inteligência</span></a>
-      <a class="nav-item" onclick="navigate('saved')" href="#">
-        <div class="nav-icon">💾</div><span class="nav-label">Anúncios Salvos</span></a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+        <span>Espionar Tráfego</span>
+      </a>
       <a class="nav-item" onclick="navigate('strategy')" href="#">
-        <div class="nav-icon">🎯</div><span class="nav-label">Estratégia</span></a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span>Estratégia</span>
+      </a>
       <a class="nav-item" onclick="navigate('map')" href="#">
-        <div class="nav-icon">🗺️</div><span class="nav-label">Mapa Mental</span></a>
-      <a class="nav-item" onclick="navigate('planning')" href="#">
-        <div class="nav-icon">📈</div><span class="nav-label">Planejamento</span></a>
-      <div class="divider"></div>
-      <div class="sst">SISTEMA</div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+        <span>Mapa Mental</span>
+      </a>
+      <div class="nav-divider"></div>
       <a class="nav-item" onclick="navigate('settings')" href="#">
-        <div class="nav-icon">⚙️</div><span class="nav-label">Configurações</span></a>
-      <a class="nav-item" onclick="navigate('privacy')" href="#">
-        <div class="nav-icon">🔒</div><span class="nav-label">Privacidade</span></a>
-      <a class="nav-item" onclick="navigate('terms')" href="#">
-        <div class="nav-icon">📄</div><span class="nav-label">Termos</span></a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Configurações</span>
+      </a>
     </nav>
-
     <div class="sidebar-footer">
-      <div class="theme-toggle" onclick="toggleTheme()">
-        <span>🌙</span>
-        <span class="nav-label" style="font-size:13px;color:var(--text2)">Tema Escuro</span>
-        <div class="toggle-switch on" id="themeSwitch"></div>
+      <div class="theme-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="theme-sun"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <button class="theme-switch" id="themeSwitch" onclick="toggleTheme()"><div class="switch-thumb"></div></button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="theme-moon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </div>
+      <button class="collapse-btn" id="sidebarToggle" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
     </div>
   </aside>
 
-  <!-- ═══ MAIN ═══ -->
   <div class="main" id="mainContent">
-
-    <!-- TOPBAR -->
     <header class="topbar">
       <div class="topbar-left">
-        <button class="topbar-btn" id="mobileMenuBtn" onclick="toggleMobileSidebar()" style="display:none">☰</button>
-        <span class="page-title" id="pageTitle">Dashboard</span>
+        <button class="icon-btn" id="mobileMenuBtn" onclick="toggleMobileSidebar()" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <h1 class="page-title" id="pageTitle">Dashboard</h1>
       </div>
       <div class="topbar-right">
-        <button class="topbar-btn" onclick="navigate('saved')" title="Anúncios Salvos">
-          💾<div class="saved-count" id="savedCount" style="display:none">0</div>
+        <button class="icon-btn" onclick="showToast('ADHELP v4','info')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </button>
-        <button class="topbar-btn" onclick="showToast('ADHELP v3 — Ad Intelligence','info')">ℹ️</button>
       </div>
     </header>
 
     <div class="content">
 
-      <!-- ═══ DASHBOARD ═══ -->
+      <!-- DASHBOARD -->
       <div class="page active" id="page-dashboard">
-        <div class="grid-4" style="margin-bottom:22px">
+        <div class="metrics-row">
           <div class="metric-card">
-            <div class="metric-icon" style="background:rgba(79,124,255,.14)">🔍</div>
-            <div class="metric-value gradient-text" id="m-searches">0</div>
-            <div class="metric-label">Buscas Realizadas</div>
-            <div class="metric-change">↑ Histórico total</div>
+            <div class="metric-top">
+              <div class="metric-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg></div>
+              <span class="metric-badge">total</span>
+            </div>
+            <div class="metric-num" id="m-searches">0</div>
+            <div class="metric-name">Buscas Realizadas</div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon" style="background:rgba(6,214,160,.14)">📦</div>
-            <div class="metric-value" style="color:var(--green)" id="m-ads">0</div>
-            <div class="metric-label">Anúncios Analisados</div>
-            <div class="metric-change">↑ Total coletado</div>
+            <div class="metric-top">
+              <div class="metric-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+              <span class="metric-badge">coletado</span>
+            </div>
+            <div class="metric-num color-green" id="m-ads">0</div>
+            <div class="metric-name">Anúncios Analisados</div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon" style="background:rgba(255,209,102,.14)">💾</div>
-            <div class="metric-value" style="color:var(--yellow)" id="m-saved">0</div>
-            <div class="metric-label">Anúncios Salvos</div>
-            <div class="metric-change">Sua biblioteca</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-icon" style="background:rgba(124,92,255,.14)">⭐</div>
-            <div class="metric-value" style="color:var(--accent2)" id="m-score">—</div>
-            <div class="metric-label">Score Médio</div>
-            <div class="metric-change">Inteligência</div>
+            <div class="metric-top">
+              <div class="metric-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+              <span class="metric-badge">média</span>
+            </div>
+            <div class="metric-num color-purple" id="m-score">—</div>
+            <div class="metric-name">Score Médio</div>
           </div>
         </div>
 
-        <div class="grid-2">
+        <div class="dash-grid">
           <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">📋 Histórico de Buscas</div>
-                <div class="card-subtitle">Últimas pesquisas realizadas</div>
-              </div>
-              <button class="btn btn-ghost btn-sm" onclick="clearSearchHistory()">Limpar</button>
-            </div>
-            <div id="searchHistory"></div>
+            <div class="card-header"><div class="card-title">Histórico de Buscas</div><button class="text-btn" onclick="clearSearchHistory()">Limpar</button></div>
+            <div id="searchHistory" class="history-list"></div>
           </div>
           <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">📊 Scores dos Salvos</div>
-                <div class="card-subtitle">Qualidade dos anúncios na biblioteca</div>
-              </div>
+            <div class="card-header"><div class="card-title">Qualidade dos Anúncios</div></div>
+            <div class="score-bars">
+              <div class="score-row"><span class="score-label">Alto (70–100)</span><div class="score-track"><div class="score-fill fill-green" id="sp-high"></div></div><span class="score-count" id="sc-high">0</span></div>
+              <div class="score-row"><span class="score-label">Médio (40–69)</span><div class="score-track"><div class="score-fill fill-yellow" id="sp-mid"></div></div><span class="score-count" id="sc-mid">0</span></div>
+              <div class="score-row"><span class="score-label">Baixo (0–39)</span><div class="score-track"><div class="score-fill fill-red" id="sp-low"></div></div><span class="score-count" id="sc-low">0</span></div>
             </div>
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-                <span style="font-size:12px;color:var(--green)">🟢 Alto (70–100)</span>
-                <span style="font-size:12px;color:var(--text2)" id="sc-high">0</span>
-              </div>
-              <div class="progress"><div class="progress-fill" id="sp-high" style="background:var(--green);width:0%"></div></div>
-            </div>
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-                <span style="font-size:12px;color:var(--yellow)">🟡 Médio (40–69)</span>
-                <span style="font-size:12px;color:var(--text2)" id="sc-mid">0</span>
-              </div>
-              <div class="progress"><div class="progress-fill" id="sp-mid" style="background:var(--yellow);width:0%"></div></div>
-            </div>
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-                <span style="font-size:12px;color:var(--red)">🔴 Baixo (0–39)</span>
-                <span style="font-size:12px;color:var(--text2)" id="sc-low">0</span>
-              </div>
-              <div class="progress"><div class="progress-fill" id="sp-low" style="background:var(--red);width:0%"></div></div>
-            </div>
-            <div class="divider"></div>
-            <div class="bar-chart" id="miniChart"></div>
           </div>
         </div>
 
         <div class="card" style="margin-top:18px">
-          <div class="card-header"><div class="card-title">🚀 Início Rápido</div></div>
-          <div class="grid-3">
-            <div class="strategy-card" onclick="navigate('intelligence')">
-              <h4>🔍 Pesquisar Anúncios</h4>
-              <p>Meta Ads Library em tempo real com análise inteligente</p>
-            </div>
-            <div class="strategy-card" onclick="navigate('saved')">
-              <h4>💾 Anúncios Salvos</h4>
-              <p>Sua biblioteca pessoal de criativos para referência</p>
-            </div>
-            <div class="strategy-card" onclick="navigate('planning')">
-              <h4>📈 Planejar Escala</h4>
-              <p>Simular ROAS, orçamento e estratégias de escala</p>
-            </div>
+          <div class="card-header"><div class="card-title">Acesso Rápido</div></div>
+          <div class="actions-grid">
+            <button class="action-tile" onclick="navigate('intelligence')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+              <strong>Espionar Tráfego</strong><span>Buscar anúncios ativos agora</span>
+            </button>
+            <button class="action-tile" onclick="navigate('strategy')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <strong>Estratégia</strong><span>Copies e palavras-chave</span>
+            </button>
+            <button class="action-tile" onclick="navigate('map')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+              <strong>Mapa Mental</strong><span>Organizar ideias visuais</span>
+            </button>
           </div>
         </div>
       </div>
 
-      <!-- ═══ INTELIGÊNCIA ═══ -->
+      <!-- ESPIONAR TRÁFEGO -->
       <div class="page" id="page-intelligence">
-        <div class="search-bar">
-          <div class="search-group">
-            <label>🔍 Pesquisar na Meta Ads Library</label>
-            <div class="input-wrap">
-              <span class="input-icon">🔎</span>
-              <input type="text" class="input with-icon" id="searchInput"
-                placeholder="Ex: curso online, emagrecimento, marketing digital..."
-                onkeypress="if(event.key==='Enter')searchAds()">
+        <div class="search-bar-wrap">
+          <div class="search-main">
+            <div class="search-field">
+              <svg class="search-icon-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+              <input type="text" class="search-input" id="searchInput" placeholder="Buscar anúncios — ex: curso online, emagrecimento..." onkeypress="if(event.key==='Enter')searchAds()">
             </div>
+            <button class="search-btn" onclick="searchAds()">Buscar</button>
           </div>
-          <div style="min-width:150px">
-            <label>🌍 País</label>
-            <select class="select" id="countryFilter">
+          <div class="search-filters">
+            <select class="filter-select" id="countryFilter">
               <option value="BR">🇧🇷 Brasil</option>
               <option value="US">🇺🇸 EUA</option>
               <option value="PT">🇵🇹 Portugal</option>
               <option value="AR">🇦🇷 Argentina</option>
             </select>
-          </div>
-          <div style="min-width:150px">
-            <label>📋 Tipo</label>
-            <select class="select" id="adTypeFilter">
-              <option value="ALL">Todos</option>
+            <select class="filter-select" id="adTypeFilter">
+              <option value="ALL">Todos os tipos</option>
               <option value="POLITICAL_AND_ISSUE_ADS">Políticos</option>
             </select>
-          </div>
-          <div>
-            <label>&nbsp;</label>
-            <button class="btn btn-primary" onclick="searchAds()">🔍 Buscar</button>
           </div>
         </div>
         <div id="searchResults">
           <div class="empty-state">
-            <div class="icon">📡</div>
-            <h3>Pronto para buscar</h3>
-            <p>Digite um termo e pressione Buscar para analisar anúncios ativos</p>
+            <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div>
+            <h3>Pronto para espionar</h3>
+            <p>Digite um termo e pressione Buscar para ver anúncios ativos</p>
           </div>
         </div>
       </div>
 
-      <!-- ═══ SALVOS ═══ -->
-      <div class="page" id="page-saved">
-        <div id="saved-ads-container">
-          <div class="empty-state">
-            <div class="icon">💾</div>
-            <h3>Nenhum anúncio salvo</h3>
-            <p>Na aba Inteligência, clique em 💾 Salvar para guardar anúncios aqui</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ ESTRATÉGIA ═══ -->
+      <!-- ESTRATÉGIA -->
       <div class="page" id="page-strategy">
-        <div class="grid-2">
+        <div class="two-col">
           <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">🔑 Palavras-chave por Categoria</div>
-                <div class="card-subtitle">Organizadas por funil de vendas</div>
-              </div>
-              <button class="btn btn-ghost btn-sm" onclick="exportKwCSV()">⬇️ CSV</button>
-            </div>
-            <div style="margin-bottom:14px">
-              <label>Categoria</label>
-              <select class="select" id="kwCategory" onchange="generateKeywords()">
-                <option value="ecommerce">🛍️ E-commerce</option>
-                <option value="saude">🏥 Saúde</option>
-                <option value="educacao">📚 Educação</option>
-                <option value="beleza">💄 Beleza</option>
-                <option value="tech">💻 Tech & SaaS</option>
-                <option value="financas">💰 Finanças</option>
-                <option value="imoveis">🏠 Imóveis</option>
-                <option value="fitness">🏋️ Fitness</option>
-              </select>
-            </div>
-            <div id="keywordTags" class="tags-area" style="margin-bottom:12px"></div>
-            <div style="display:flex;gap:8px">
-              <input type="text" class="input" id="customKw" placeholder="Adicionar palavra-chave...">
-              <button class="btn btn-ghost btn-sm" onclick="addCustomKw()">+ Add</button>
+            <div class="card-header"><div class="card-title">Palavras-chave por Categoria</div><button class="text-btn" onclick="exportKwCSV()">↓ CSV</button></div>
+            <select class="filter-select" id="kwCategory" onchange="generateKeywords()" style="width:100%;margin-bottom:14px">
+              <option value="ecommerce">🛍️ E-commerce</option><option value="saude">🏥 Saúde</option><option value="educacao">📚 Educação</option>
+              <option value="beleza">💄 Beleza</option><option value="tech">💻 Tech & SaaS</option><option value="financas">💰 Finanças</option>
+              <option value="imoveis">🏠 Imóveis</option><option value="fitness">🏋️ Fitness</option>
+            </select>
+            <div id="keywordTags" class="tags-area"></div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <input type="text" class="filter-select" style="flex:1" id="customKw" placeholder="Adicionar palavra-chave...">
+              <button class="text-btn" onclick="addCustomKw()">+ Add</button>
             </div>
           </div>
-
           <div class="card">
-            <div class="card-header"><div class="card-title">🔻 Funil de Vendas</div></div>
-            <div class="funnel-stage funnel-top">
-              <div class="funnel-label" style="color:var(--red)">TOPO — Consciência</div>
-              <div id="funnel-top" style="font-size:13px;color:var(--text2)">Clique em Preencher Funil</div>
+            <div class="card-header"><div class="card-title">Funil de Vendas</div></div>
+            <div class="funnel">
+              <div class="funnel-stage top"><span class="funnel-label">TOPO</span><div id="funnel-top" style="font-size:13px;margin-top:4px">Clique em Preencher</div></div>
+              <div class="funnel-stage mid"><span class="funnel-label">MEIO</span><div id="funnel-mid" style="font-size:13px;margin-top:4px">Termos de comparação</div></div>
+              <div class="funnel-stage bot"><span class="funnel-label">FUNDO</span><div id="funnel-bot" style="font-size:13px;margin-top:4px">Termos de compra</div></div>
             </div>
-            <div class="funnel-stage funnel-mid">
-              <div class="funnel-label" style="color:var(--yellow)">MEIO — Consideração</div>
-              <div id="funnel-mid" style="font-size:13px;color:var(--text2)">Termos de comparação</div>
-            </div>
-            <div class="funnel-stage funnel-bot">
-              <div class="funnel-label" style="color:var(--green)">FUNDO — Decisão</div>
-              <div id="funnel-bot" style="font-size:13px;color:var(--text2)">Termos de compra</div>
-            </div>
-            <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="autoFillFunnel()">⚡ Preencher Funil</button>
+            <button class="search-btn" style="width:100%;margin-top:12px" onclick="autoFillFunnel()">⚡ Preencher Funil</button>
           </div>
         </div>
-
         <div class="card" style="margin-top:18px">
-          <div class="card-header">
-            <div>
-              <div class="card-title">✍️ Criador de Anúncios — AIDA / PAS / CTA</div>
-              <div class="card-subtitle">Gere copies profissionais em segundos</div>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="generateCopy()">⚡ Gerar</button>
+          <div class="card-header"><div class="card-title">Criador de Anúncios</div><button class="search-btn" onclick="generateCopy()">⚡ Gerar</button></div>
+          <div class="four-col">
+            <div><label class="field-label">Produto</label><input type="text" class="filter-select" id="adProduct" placeholder="Ex: Curso de Marketing" style="width:100%"></div>
+            <div><label class="field-label">Público</label><input type="text" class="filter-select" id="adAudience" placeholder="Ex: Empreendedores" style="width:100%"></div>
+            <div><label class="field-label">Benefício</label><input type="text" class="filter-select" id="adBenefit" placeholder="Ex: Dobrar vendas" style="width:100%"></div>
+            <div><label class="field-label">Tom</label><select class="filter-select" id="adTone" style="width:100%"><option value="urgente">🔥 Urgente</option><option value="emocional">❤️ Emocional</option><option value="racional">🧠 Racional</option><option value="provocativo">😏 Provocativo</option></select></div>
           </div>
-          <div class="grid-2" style="margin-bottom:16px">
-            <div><label>Produto / Serviço</label><input type="text" class="input" id="adProduct" placeholder="Ex: Curso de Marketing Digital"></div>
-            <div><label>Público-alvo</label><input type="text" class="input" id="adAudience" placeholder="Ex: Empreendedores iniciantes"></div>
-            <div><label>Benefício Principal</label><input type="text" class="input" id="adBenefit" placeholder="Ex: Dobrar vendas em 30 dias"></div>
-            <div><label>Tom</label>
-              <select class="select" id="adTone">
-                <option value="urgente">🔥 Urgente</option>
-                <option value="emocional">❤️ Emocional</option>
-                <option value="racional">🧠 Racional</option>
-                <option value="provocativo">😏 Provocativo</option>
-              </select>
-            </div>
-          </div>
-          <div id="adCopyResults">
-            <div class="empty-state" style="padding:24px"><div class="icon" style="font-size:32px">✍️</div><p>Preencha e clique em Gerar</p></div>
-          </div>
+          <div id="adCopyResults" style="margin-top:16px"><div class="empty-state" style="padding:20px"><p>Preencha os campos acima e clique em Gerar</p></div></div>
         </div>
       </div>
 
-      <!-- ═══ MAPA ═══ -->
+      <!-- MAPA MENTAL -->
       <div class="page" id="page-map">
-        <!-- TOOLBAR -->
         <div class="map-toolbar">
-          <!-- Add elements -->
-          <button class="btn btn-primary btn-sm" onclick="addNode()">＋ Caixa</button>
-          <button class="btn btn-ghost btn-sm" onclick="addTextNode()" title="Texto livre sem borda">T Texto</button>
-          <div class="dv"></div>
-
-          <!-- Font family -->
-          <label style="margin:0;font-size:11px;color:var(--text3)">Fonte</label>
-          <select class="select" id="nodeFontFamily" onchange="applyFontFamily()"
-            style="width:130px;padding:5px 8px;font-size:12px">
-            <option value="Inter">Inter</option>
-            <option value="Syne">Syne</option>
-            <option value="Georgia">Georgia</option>
-            <option value="Arial">Arial</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Trebuchet MS">Trebuchet</option>
+          <button class="text-btn" onclick="addNode()">＋ Caixa</button>
+          <button class="text-btn" onclick="addTextNode()">T Texto</button>
+          <div class="toolbar-sep"></div>
+          <select class="filter-select" id="nodeFontFamily" onchange="applyFontFamily()" style="width:110px">
+            <option value="DM Sans">DM Sans</option><option value="Syne">Syne</option><option value="Georgia">Georgia</option><option value="Courier New">Mono</option>
           </select>
-
-          <!-- Font size -->
-          <label style="margin:0;font-size:11px;color:var(--text3)">Tamanho</label>
-          <div style="display:flex;align-items:center;gap:4px">
-            <button class="btn btn-ghost btn-sm btn-icon"
-              onclick="document.getElementById('nodeFontSize').value=Math.max(8,parseInt(document.getElementById('nodeFontSize').value||14)-2);applyFontSize()">−</button>
-            <input type="number" class="input" id="nodeFontSize" value="14" min="8" max="72"
-              onchange="applyFontSize()" style="width:52px;padding:5px 8px;text-align:center">
-            <button class="btn btn-ghost btn-sm btn-icon"
-              onclick="document.getElementById('nodeFontSize').value=Math.min(72,parseInt(document.getElementById('nodeFontSize').value||14)+2);applyFontSize()">＋</button>
+          <div style="display:flex;align-items:center;gap:3px">
+            <button class="icon-btn sm" onclick="document.getElementById('nodeFontSize').value=Math.max(8,+document.getElementById('nodeFontSize').value-2);applyFontSize()">−</button>
+            <input type="number" class="filter-select" id="nodeFontSize" value="14" min="8" max="72" onchange="applyFontSize()" style="width:48px;text-align:center">
+            <button class="icon-btn sm" onclick="document.getElementById('nodeFontSize').value=Math.min(72,+document.getElementById('nodeFontSize').value+2);applyFontSize()">＋</button>
           </div>
-
-          <div class="dv"></div>
-
-          <!-- Colors -->
-          <span style="font-size:11px;color:var(--text3)">Cor</span>
-          <div class="color-swatch active" style="background:#4f7cff" onclick="setNodeColor('#4f7cff',this)"></div>
-          <div class="color-swatch" style="background:#06d6a0" onclick="setNodeColor('#06d6a0',this)"></div>
-          <div class="color-swatch" style="background:#ffd166" onclick="setNodeColor('#ffd166',this)"></div>
-          <div class="color-swatch" style="background:#ff4d6d" onclick="setNodeColor('#ff4d6d',this)"></div>
-          <div class="color-swatch" style="background:#7c5cff" onclick="setNodeColor('#7c5cff',this)"></div>
-          <div class="color-swatch" style="background:#eef0f7" onclick="setNodeColor('#eef0f7',this)"></div>
-
-          <div class="dv"></div>
-
-          <!-- Actions -->
-          <button class="btn btn-ghost btn-sm btn-icon" onclick="undoCanvas()" title="Desfazer (Ctrl+Z)">↩</button>
-          <button class="btn btn-ghost btn-sm btn-icon" onclick="redoCanvas()" title="Refazer (Ctrl+Y)">↪</button>
-          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteSelected()" title="Deletar selecionado">🗑</button>
-
-          <div class="dv"></div>
-
-          <!-- Zoom controls -->
-          <button class="btn btn-ghost btn-sm btn-icon" onclick="zoomOut()" title="Diminuir zoom">－</button>
-          <span id="zoom-level" style="font-size:12px;color:var(--text2);min-width:44px;text-align:center;font-variant-numeric:tabular-nums">100%</span>
-          <button class="btn btn-ghost btn-sm btn-icon" onclick="zoomIn()" title="Aumentar zoom">＋</button>
-          <button class="btn btn-ghost btn-sm" onclick="zoomReset()" title="Resetar zoom">⊡ Reset</button>
-
-          <div class="dv"></div>
-          <button class="btn btn-ghost btn-sm" onclick="clearCanvas()">🗑️ Limpar</button>
-
-          <div style="margin-left:auto;font-size:11px;color:var(--text3);white-space:nowrap">
-            Scroll=zoom · Espaço+drag=mover · Ctrl+Z/Y=undo/redo
+          <div class="toolbar-sep"></div>
+          <div class="color-swatches">
+            <div class="swatch active" style="--c:#4f7cff" onclick="setNodeColor('#4f7cff',this)"></div>
+            <div class="swatch" style="--c:#06d6a0" onclick="setNodeColor('#06d6a0',this)"></div>
+            <div class="swatch" style="--c:#ffd166" onclick="setNodeColor('#ffd166',this)"></div>
+            <div class="swatch" style="--c:#ff4d6d" onclick="setNodeColor('#ff4d6d',this)"></div>
+            <div class="swatch" style="--c:#a855f7" onclick="setNodeColor('#a855f7',this)"></div>
           </div>
+          <div class="toolbar-sep"></div>
+          <button class="icon-btn sm" onclick="undoCanvas()" title="Desfazer">↩</button>
+          <button class="icon-btn sm" onclick="redoCanvas()" title="Refazer">↪</button>
+          <button class="icon-btn sm danger" onclick="deleteSelected()">✕</button>
+          <div class="toolbar-sep"></div>
+          <button class="icon-btn sm" onclick="zoomOut()">−</button>
+          <span id="zoom-level" style="font-size:12px;min-width:40px;text-align:center;font-family:'DM Mono',monospace">100%</span>
+          <button class="icon-btn sm" onclick="zoomIn()">＋</button>
+          <button class="text-btn" onclick="zoomReset()">⊡</button>
+          <div class="toolbar-sep"></div>
+          <button class="text-btn danger" onclick="clearCanvas()">Limpar</button>
         </div>
-
-        <div id="map-viewport" onmousedown="onVPDown(event)">
-          <div id="map-canvas"></div>
-        </div>
+        <div id="map-viewport" onmousedown="onVPDown(event)"><div id="map-canvas"></div></div>
       </div>
 
-      <!-- ═══ PLANEJAMENTO ═══ -->
-      <div class="page" id="page-planning">
-        <div class="planning-grid">
-          <div class="card">
-            <div class="card-header"><div class="card-title">💰 Parâmetros da Campanha</div></div>
-            <div style="display:flex;flex-direction:column;gap:14px">
-              <div><label>Orçamento Diário (R$)</label><input type="number" class="input" id="budgetDaily" value="100" oninput="calcPlanning()"></div>
-              <div><label>CPC Médio (R$)</label><input type="number" class="input" id="cpcAvg" value="2.50" step="0.1" oninput="calcPlanning()"></div>
-              <div><label>Taxa de Conversão (%)</label><input type="number" class="input" id="convRate" value="2" step="0.1" oninput="calcPlanning()"></div>
-              <div><label>Ticket Médio (R$)</label><input type="number" class="input" id="avgTicket" value="197" oninput="calcPlanning()"></div>
-              <div><label>Período (dias)</label><input type="number" class="input" id="planDays" value="30" oninput="calcPlanning()"></div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:14px">
-            <div class="grid-2">
-              <div class="planning-result"><div class="result-value" id="r-revenue">R$ 0</div><div class="result-label">Receita Estimada</div></div>
-              <div class="planning-result" style="background:linear-gradient(135deg,rgba(6,214,160,.1),rgba(0,180,140,.1));border-color:rgba(6,214,160,.25)">
-                <div class="result-value" style="color:var(--green)" id="r-profit">R$ 0</div><div class="result-label">Lucro Estimado</div></div>
-              <div class="planning-result" style="background:linear-gradient(135deg,rgba(255,209,102,.1),rgba(255,150,0,.1));border-color:rgba(255,209,102,.25)">
-                <div class="result-value" style="color:var(--yellow)" id="r-clicks">0</div><div class="result-label">Cliques Estimados</div></div>
-              <div class="planning-result" style="background:linear-gradient(135deg,rgba(255,77,109,.1),rgba(200,0,60,.1));border-color:rgba(255,77,109,.25)">
-                <div class="result-value" style="color:var(--red)" id="r-conversions">0</div><div class="result-label">Conversões</div></div>
-            </div>
-            <div class="card">
-              <div class="card-header"><div class="card-title">⚡ Estratégia</div></div>
-              <div class="grid-2">
-                <div class="strategy-card" id="abo-card" onclick="selectStrategy('ABO')">
-                  <h4>📦 ABO</h4><p>Orçamento por Conjunto. Controle granular para testes.</p>
-                  <div class="badge badge-blue" style="margin-top:8px">Testes</div>
-                </div>
-                <div class="strategy-card" id="cbo-card" onclick="selectStrategy('CBO')">
-                  <h4>🧠 CBO</h4><p>Orçamento por Campanha. IA distribui para melhores resultados.</p>
-                  <div class="badge badge-green" style="margin-top:8px">Escala</div>
-                </div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-header"><div class="card-title">📈 Simulação de Escala</div></div>
-              <div id="scaleResults"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ CONFIGURAÇÕES ═══ -->
+      <!-- CONFIGURAÇÕES -->
       <div class="page" id="page-settings">
-        <div class="card" style="max-width:620px">
-          <div class="card-header"><div class="card-title">⚙️ Configurações do Sistema</div></div>
-          <div class="settings-row">
-            <div class="settings-label"><h4>🌙 Tema Visual</h4><p>Alternar entre modo claro e escuro</p></div>
-            <button class="btn btn-ghost btn-sm" onclick="toggleTheme()">Alternar</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-label"><h4>🔑 Token Meta Graph API</h4><p>Token de acesso para buscar anúncios</p></div>
-            <span class="badge badge-green" id="tokenStatus">✓ Token padrão</span>
-          </div>
-          <div style="padding:14px 0;border-bottom:1px solid var(--border)">
-            <label>Token de Acesso</label>
-            <div style="display:flex;gap:8px;margin-top:6px">
-              <input type="password" class="input" id="apiTokenInput" placeholder="Cole seu token aqui..." style="flex:1">
-              <button class="btn btn-primary btn-sm" onclick="saveApiToken()">💾 Salvar</button>
-              <button class="btn btn-ghost btn-sm" onclick="toggleTokenVis()">👁</button>
+        <div class="settings-card">
+          <div class="card-header"><div class="card-title">Configurações</div></div>
+          <div class="settings-row"><div class="settings-info"><strong>Token Meta Graph API</strong><span>Token de acesso para buscar anúncios</span></div><span class="status-pill green" id="tokenStatus">✓ Ativo</span></div>
+          <div class="settings-field">
+            <label class="field-label">Token de Acesso</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" class="filter-select" id="apiTokenInput" placeholder="Cole seu token aqui..." style="flex:1">
+              <button class="search-btn" onclick="saveApiToken()">Salvar</button>
+              <button class="icon-btn" onclick="toggleTokenVis()">👁</button>
             </div>
-            <p style="margin-top:8px;font-size:11px;color:var(--text3)">
-              Obtenha em: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" style="color:var(--accent)">developers.facebook.com/tools/explorer</a>
-            </p>
+            <p class="hint">Obtenha em: <a href="https://developers.facebook.com/tools/explorer/" target="_blank">developers.facebook.com</a></p>
           </div>
-          <!-- ── TOKEN DA EXTENSÃO CHROME ── -->
-          <div style="padding:18px 0;border-bottom:1px solid var(--border)">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-              <span style="font-size:20px">🧩</span>
-              <div>
-                <h4 style="font-size:14px;font-weight:700;color:var(--text1)">Token da Extensão Chrome</h4>
-                <p style="font-size:12px;color:var(--text3);margin-top:2px">Use este token para conectar a extensão ao seu site e capturar imagens automaticamente</p>
-              </div>
-            </div>
-
-            <!-- Token gerado -->
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Seu Token</span>
-                <span class="badge badge-green" id="extTokenStatus">● Ativo</span>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <code id="extTokenDisplay" style="flex:1;font-family:monospace;font-size:12px;color:var(--accent);word-break:break-all;background:var(--bg4);padding:8px 10px;border-radius:6px;letter-spacing:.5px">Clique em "Gerar Token" para criar</code>
-                <button class="btn btn-ghost btn-sm" onclick="copyExtToken()" title="Copiar">📋</button>
-              </div>
-            </div>
-
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-primary btn-sm" onclick="generateExtToken()">⚡ Gerar Token</button>
-              <button class="btn btn-ghost btn-sm" onclick="regenerateExtToken()">🔄 Regenerar</button>
-            </div>
-
-            <!-- Instruções de uso -->
-            <div style="margin-top:14px;background:linear-gradient(135deg,#6c47ff11,#a855f711);border:1px solid #6c47ff33;border-radius:10px;padding:14px">
-              <p style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">📖 Como usar a extensão:</p>
-              <ol style="font-size:12px;color:var(--text2);line-height:1.9;padding-left:16px;margin:0">
-                <li>Baixe a extensão: <a id="extDownloadLink" href="#" style="color:var(--accent);font-weight:600" onclick="downloadExtension(event)">adhelp-extensao-chrome.zip</a></li>
-                <li>Abra o Chrome → <code style="background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:11px">chrome://extensions</code></li>
-                <li>Ative <strong>Modo do desenvolvedor</strong> (canto superior direito)</li>
-                <li>Clique em <strong>"Carregar sem compactação"</strong> e selecione a pasta extraída</li>
-                <li>Clique no ícone ⚡ na barra do Chrome e cole o token acima</li>
-                <li>Acesse <a href="https://www.facebook.com/ads/library/" target="_blank" style="color:var(--accent)">facebook.com/ads/library</a> e navegue normalmente</li>
-                <li>As imagens aparecem automaticamente aqui no site! ✅</li>
-              </ol>
-            </div>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row">
-              <div class="settings-label">
-                <h4>🧩 ID da Extensão Chrome</h4>
-                <p>Permite que o site abra tabs invisíveis automaticamente</p>
-              </div>
-              <div class="settings-control" style="display:flex;gap:8px;align-items:center">
-                <input type="text" class="input" id="extIdInput"
-                  placeholder="amolhiihcpdbkjimhlffamgieibhfapi"
-                  style="font-family:monospace;font-size:11px;flex:1"
-                  oninput="localStorage.setItem('adhelp_ext_id',this.value.trim())">
-                <button class="btn btn-sm" onclick="document.getElementById('extIdInput').value=localStorage.getItem('adhelp_ext_id')||'';showToast('Carregado','success')">📋</button>
-              </div>
-              <p style="font-size:11px;color:var(--text3);margin-top:4px;grid-column:1/-1">
-                Acesse <code>chrome://extensions</code> → ative "Modo desenvolvedor" → copie o ID da extensão AdHelp
-              </p>
-            </div>
-
-            <div class="settings-row">
-              <div class="settings-label"><h4>🗑️ Limpar Histórico</h4><p>Remove todas as buscas salvas</p></div>
-            <button class="btn btn-danger btn-sm" onclick="clearSearchHistory()">Limpar</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-label"><h4>💾 Limpar Salvos</h4><p>Remove todos os anúncios salvos</p></div>
-            <button class="btn btn-danger btn-sm" onclick="clearAllSaved()">Limpar</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-label"><h4>🧹 Resetar Sistema</h4><p>Apaga todos os dados locais</p></div>
-            <button class="btn btn-danger btn-sm" onclick="resetAll()">Resetar</button>
-          </div>
-          <div class="settings-row">
-            <div class="settings-label"><h4>📋 Versão</h4><p>ADHELP v3.0 — Netlify Ready</p></div>
-            <span class="badge badge-blue">Estável</span>
-          </div>
+          <div class="settings-sep"></div>
+          <div class="settings-row"><div class="settings-info"><strong>Limpar Histórico</strong><span>Remove todas as pesquisas salvas</span></div><button class="danger-btn" onclick="clearSearchHistory()">Limpar</button></div>
+          <div class="settings-row"><div class="settings-info"><strong>Resetar Sistema</strong><span>Apaga todos os dados locais</span></div><button class="danger-btn" onclick="resetAll()">Resetar</button></div>
+          <div class="settings-sep"></div>
+          <div class="settings-row"><div class="settings-info"><strong>Versão</strong><span>ADHELP v4.0</span></div><span class="status-pill blue">Estável</span></div>
         </div>
       </div>
 
-      <!-- ═══ PRIVACIDADE ═══ -->
-      <div class="page" id="page-privacy">
-        <div class="card"><div class="public-content">
-          <h2>🔒 Política de Privacidade</h2>
-          <p><strong>Última atualização:</strong> 2025</p>
-          <h3>1. Dados Coletados</h3>
-          <p>A ADHELP não coleta nem transmite dados pessoais. Todas as informações (histórico, salvos, configurações) ficam armazenadas exclusivamente no localStorage do seu navegador.</p>
-          <h3>2. API da Meta</h3>
-          <p>As consultas à Meta Ads Library incluem apenas os termos de busca e o país selecionado. Nenhum dado pessoal é transmitido.</p>
-          <h3>3. Exclusão de Dados</h3>
-          <p>Para remover todos os dados: <strong>Configurações → Resetar Sistema</strong>.</p>
-        </div></div>
-      </div>
+      <div class="page" id="page-privacy"><div class="settings-card"><h2 style="font-family:'Syne',sans-serif;margin-bottom:16px">Privacidade</h2><p>A ADHELP não coleta dados pessoais. Tudo fica no localStorage do seu navegador.</p></div></div>
+      <div class="page" id="page-terms"><div class="settings-card"><h2 style="font-family:'Syne',sans-serif;margin-bottom:16px">Termos de Uso</h2><p>Ferramenta para pesquisa e análise de concorrência legítima.</p></div></div>
 
-      <!-- ═══ TERMOS ═══ -->
-      <div class="page" id="page-terms">
-        <div class="card"><div class="public-content">
-          <h2>📄 Termos de Uso</h2>
-          <p><strong>Última atualização:</strong> 2025</p>
-          <h3>1. Uso Aceitável</h3>
-          <ul>
-            <li>Pesquisa e análise de concorrência legítima</li>
-            <li>Planejamento de campanhas próprias</li>
-            <li>Geração de estratégias para uso próprio</li>
-          </ul>
-          <h3>2. Uso Proibido</h3>
-          <ul>
-            <li>Copiar criativos sem autorização</li>
-            <li>Uso para fins ilegais ou enganosos</li>
-          </ul>
-          <h3>3. Isenção</h3>
-          <p>A ADHELP é fornecida "como está". Não nos responsabilizamos por decisões baseadas nas análises da plataforma.</p>
-        </div></div>
-      </div>
-
-    </div><!-- /content -->
-  </div><!-- /main -->
-</div><!-- /app -->
-
+    </div>
+  </div>
+</div>
 <script src="js/app.js"></script>
 </body>
 </html>
