@@ -402,6 +402,10 @@ async function searchAds() {
     if (state.searchHistory.length > 20) state.searchHistory.pop();
     localStorage.setItem('adhelp_history', JSON.stringify(state.searchHistory));
     analyzeAds(ads);
+
+    // Registra anúncios como pendentes no media-ingest para a extensão processar
+    _registerPendingAds(ads, term, state.currentSearch.country);
+
     renderResults(container, ads);
     showToast(`${ads.length} anúncios encontrados!`, 'success');
   } catch (err) {
@@ -415,6 +419,157 @@ async function searchAds() {
   }
 }
 
+// Registra anúncios no media-ingest e abre o Facebook Ads Library
+// na mesma aba para a extensão Chrome capturar as imagens em tempo real
+// ── CAPTURA AUTOMÁTICA ──────────────────────────────────────────────────────
+// Igual ao Adminer: quando o usuário busca, a extensão abre uma tab invisível
+// do Facebook Ads Library com o mesmo termo, faz auto-scroll automático,
+// captura todas as imagens/vídeos e fecha a tab. Tudo transparente.
+
+let _pollTimer = null;
+
+function _registerPendingAds(ads, term, country) {
+  const extToken = localStorage.getItem('adhelp_ext_token');
+  const extId    = localStorage.getItem('adhelp_ext_id');
+
+  // 1. Registra IDs no backend como pendentes (sem imagem)
+  if (extToken) {
+    const pending = ads.map(ad => ({
+      adId:    String(ad.id),
+      pageId:  String(ad.page_id || ''),
+      images:  [], videos: [],
+    }));
+    fetch('/.netlify/functions/media-ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AdHelp-Token': extToken },
+      body: JSON.stringify({ ads: pending }),
+    }).catch(() => {});
+  }
+
+  // 2. URL do Facebook Ads Library com o termo já preenchido
+  const fbUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${country}&q=${encodeURIComponent(term)}&media_type=all`;
+
+  // 3. Pede à extensão para abrir tab invisível + auto-scroll
+  const canUseExtAPI = extId && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage;
+
+  if (canUseExtAPI) {
+    try {
+      chrome.runtime.sendMessage(extId, { type: 'OPEN_CAPTURE_TAB', searchUrl: fbUrl }, (resp) => {
+        const err = chrome.runtime.lastError;
+        if (err || !resp?.ok) {
+          // Extensão bloqueou popup — fallback: abre em nova aba normal
+          _showBanner('manual', fbUrl, ads.length);
+        } else {
+          // Tab aberta com sucesso — captura em andamento!
+          _showBanner('auto', fbUrl, ads.length);
+          _pollForMedia(ads.map(a => String(a.id)));
+        }
+      });
+    } catch(e) {
+      _showBanner('manual', fbUrl, ads.length);
+    }
+  } else if (extToken) {
+    _showBanner('manual', fbUrl, ads.length);
+  } else {
+    _showBanner('noext', fbUrl, ads.length);
+  }
+}
+
+// ── POLLING: verifica chegada de mídias novas ────────────────────────────────
+function _pollForMedia(adIds) {
+  clearInterval(_pollTimer);
+  if (!adIds?.length) return;
+  const extToken = localStorage.getItem('adhelp_ext_token');
+  if (!extToken) return;
+
+  let tries = 0;
+  _pollTimer = setInterval(async () => {
+    if (++tries > 30) { clearInterval(_pollTimer); return; }
+    try {
+      const r = await fetch(
+        `/.netlify/functions/media-ingest?adId=${encodeURIComponent(adIds[0])}`,
+        { headers: { 'X-AdHelp-Token': extToken } }
+      );
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d?.images?.length || d?.videos?.length) {
+        // Chegou! Atualiza todos os cards
+        Object.keys(_previewCache).forEach(k => delete _previewCache[k]);
+        document.querySelectorAll('.ad-preview-wrap').forEach(wrap => {
+          if (wrap._adData) {
+            wrap.innerHTML = '<div class="ad-preview-loading"><div class="mini-spinner"></div></div>';
+            _loadPreview(wrap);
+          }
+        });
+        _updateBanner('done');
+        clearInterval(_pollTimer);
+      }
+    } catch(e) {}
+  }, 2000);
+}
+
+// ── BANNER DE STATUS ─────────────────────────────────────────────────────────
+function _showBanner(mode, fbUrl, count) {
+  const old = document.getElementById('ext-capture-banner');
+  if (old) old.remove();
+
+  const b = document.createElement('div');
+  b.id = 'ext-capture-banner';
+  b.style.cssText = 'background:linear-gradient(135deg,#6c47ff15,#a855f715);border:1px solid #6c47ff30;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;';
+
+  const close = `<button onclick="document.getElementById('ext-capture-banner').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;margin-left:auto;padding:0 2px">×</button>`;
+
+  if (mode === 'auto') {
+    b.innerHTML = `
+      <div id="ext-dot" style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e66;animation:pulse 1.5s infinite;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <strong style="font-size:13px;color:#22c55e" id="ext-banner-title">⚡ Capturando imagens automaticamente...</strong>
+        <p style="font-size:11px;color:var(--text3);margin-top:2px" id="ext-banner-sub">
+          A extensão abriu o Facebook em segundo plano e está capturando os criativos
+        </p>
+      </div>
+      ${close}`;
+  } else if (mode === 'manual') {
+    b.innerHTML = `
+      <span style="font-size:20px;flex-shrink:0">⚡</span>
+      <div style="flex:1;min-width:0">
+        <strong style="font-size:13px;color:#a855f7">Extensão pronta — clique para capturar</strong>
+        <p style="font-size:11px;color:var(--text3);margin-top:2px">
+          Abre o Facebook com o termo já preenchido — extensão captura automaticamente
+        </p>
+      </div>
+      <a href="${fbUrl}" target="_blank" onclick="_pollForMedia(Array.from(document.querySelectorAll('[data-ad-id]')).map(e=>e.dataset.adId))" style="background:linear-gradient(135deg,#6c47ff,#a855f7);color:#fff;text-decoration:none;font-size:11px;font-weight:700;padding:8px 14px;border-radius:7px;white-space:nowrap;flex-shrink:0">
+        🔍 Abrir Facebook (${count} ads)
+      </a>
+      ${close}`;
+  } else {
+    b.innerHTML = `
+      <span style="font-size:20px;flex-shrink:0">🧩</span>
+      <div style="flex:1;min-width:0">
+        <strong style="font-size:13px;color:var(--text1)">Instale a extensão para ver imagens e vídeos</strong>
+        <p style="font-size:11px;color:var(--text3);margin-top:2px">
+          A extensão captura criativos automaticamente em segundo plano
+        </p>
+      </div>
+      <button onclick="navigate('settings')" style="background:linear-gradient(135deg,#6c47ff,#a855f7);color:#fff;border:none;font-size:11px;font-weight:700;padding:8px 14px;border-radius:7px;cursor:pointer;flex-shrink:0">
+        ⚙️ Configurar
+      </button>
+      ${close}`;
+  }
+
+  const container = document.getElementById('searchResults');
+  container.parentNode.insertBefore(b, container);
+}
+
+function _updateBanner(status) {
+  if (status !== 'done') return;
+  const title = document.getElementById('ext-banner-title');
+  const sub   = document.getElementById('ext-banner-sub');
+  const dot   = document.getElementById('ext-dot');
+  if (title) { title.textContent = '✓ Imagens capturadas com sucesso!'; title.style.color='#22c55e'; }
+  if (sub)   { sub.textContent   = 'Os criativos já aparecem nos cards acima'; }
+  if (dot)   { dot.style.animation='none'; }
+}
 async function loadMore() {
   if (!state.nextCursor || state.loadingMore) return;
   state.loadingMore = true;

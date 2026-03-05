@@ -489,7 +489,25 @@
           </div>
 
           <div class="settings-row">
-            <div class="settings-label"><h4>🗑️ Limpar Histórico</h4><p>Remove todas as buscas salvas</p></div>
+            <div class="settings-row">
+              <div class="settings-label">
+                <h4>🧩 ID da Extensão Chrome</h4>
+                <p>Permite que o site abra tabs invisíveis automaticamente</p>
+              </div>
+              <div class="settings-control" style="display:flex;gap:8px;align-items:center">
+                <input type="text" class="input" id="extIdInput"
+                  placeholder="amolhiihcpdbkjimhlffamgieibhfapi"
+                  style="font-family:monospace;font-size:11px;flex:1"
+                  oninput="localStorage.setItem('adhelp_ext_id',this.value.trim())">
+                <button class="btn btn-sm" onclick="document.getElementById('extIdInput').value=localStorage.getItem('adhelp_ext_id')||'';showToast('Carregado','success')">📋</button>
+              </div>
+              <p style="font-size:11px;color:var(--text3);margin-top:4px;grid-column:1/-1">
+                Acesse <code>chrome://extensions</code> → ative "Modo desenvolvedor" → copie o ID da extensão AdHelp
+              </p>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-label"><h4>🗑️ Limpar Histórico</h4><p>Remove todas as buscas salvas</p></div>
             <button class="btn btn-danger btn-sm" onclick="clearSearchHistory()">Limpar</button>
           </div>
           <div class="settings-row">
