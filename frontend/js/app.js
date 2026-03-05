@@ -59,82 +59,108 @@ async function fetchAds(params) {
 //   3. Cards  → snapshot.cards[0].original_image_url / video_hd_url
 //   4. Fallback → link para ad_snapshot_url no Facebook
 
-// ─── PREVIEW VIA NETLIFY FUNCTION render.js ───────────────────────────────────
-// A função /.netlify/functions/render?id=<AD_ID> usa o Cloudflare Worker
-// público (render-facebook-ad.lejo.workers.dev) para buscar o HTML do anúncio
-// e extrair og:image / og:video + fallback de URL de CDN do Facebook.
-// Tudo server-side: sem CORS, sem token, sem serviço pago.
+// ─── PREVIEW: busca mídia capturada pela extensão ────────────────────────────
+// A extensão Chrome captura imagens/vídeos enquanto o usuário navega no Facebook.
+// O frontend busca esses dados via /.netlify/functions/media-ingest?adId=<id>
+// Se não houver mídia capturada ainda, cai no fallback da foto da página.
 
-// Cache em memória para não repetir requests no mesmo sessão
 const _previewCache = {};
 
-// IntersectionObserver: só dispara o fetch quando o card entra na viewport
-const _previewObserver = new IntersectionObserver(function(entries) {
-  entries.forEach(function(entry) {
-    if (!entry.isIntersecting) return;
-    const wrap = entry.target;
-    _previewObserver.unobserve(wrap);
-    _loadRenderPreview(wrap);
-  });
-}, { rootMargin: '400px' });
+function _getToken(ad) {
+  try {
+    const url = new URL(ad.ad_snapshot_url || '');
+    return url.searchParams.get('access_token') || '';
+  } catch(e) { return ''; }
+}
 
-function _loadRenderPreview(wrap) {
+async function _loadPreview(wrap) {
   const ad = wrap._adData;
-  if (!ad || !ad.id) { _showNoMedia(wrap); return; }
+  if (!ad) { _showNoMedia(wrap); return; }
 
   const adId = ad.id;
 
-  // Se já temos em cache, usa direto
+  // Cache hit
   if (_previewCache[adId]) {
-    _applyPreviewData(wrap, _previewCache[adId]);
+    _applyMedia(wrap, _previewCache[adId]);
     return;
   }
 
-  // Chama a nossa Netlify Function
-  fetch('/.netlify/functions/render?id=' + encodeURIComponent(adId))
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(data) {
-      if (!data) { _showNoMedia(wrap); return; }
-      _previewCache[adId] = data;
-      _applyPreviewData(wrap, data);
-    })
-    .catch(function() { _showNoMedia(wrap); });
+  // 1ª tentativa: mídia capturada pela extensão
+  try {
+    const r = await fetch('/.netlify/functions/media-ingest?adId=' + encodeURIComponent(adId));
+    if (r.ok) {
+      const data = await r.json();
+      if (data && (data.images?.length > 0 || data.videos?.length > 0)) {
+        _previewCache[adId] = { source: 'extension', ...data };
+        _applyMedia(wrap, _previewCache[adId]);
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // 2ª tentativa: foto da página via Graph API (sempre disponível)
+  const token = _getToken(ad);
+  const pid   = ad.page_id;
+  if (pid && token) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/${pid}/picture?type=large&redirect=false&access_token=${token}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data?.data?.url) {
+          const media = { source: 'page_picture', images: [data.data.url], videos: [] };
+          _previewCache[adId] = media;
+          _applyMedia(wrap, media);
+          return;
+        }
+      }
+    } catch(e) {}
+  }
+
+  _showNoMedia(wrap);
 }
 
-function _applyPreviewData(wrap, data) {
-  if (!data.found || (!data.imageUrl && !data.videoUrl)) {
-    _showNoMedia(wrap);
-    return;
-  }
-
+function _applyMedia(wrap, data) {
   wrap.innerHTML = '';
 
-  if (data.videoUrl) {
+  // Vídeo tem prioridade
+  const vid = data.videos && data.videos[0];
+  if (vid) {
     const video = document.createElement('video');
     video.className   = 'ad-preview-media';
     video.autoplay    = true;
     video.muted       = true;
     video.loop        = true;
     video.playsInline = true;
-    video.src         = data.videoUrl;
-    video.poster      = data.imageUrl || '';
-    video.onerror     = function() { _showNoMedia(wrap); };
+    video.src         = vid.url || vid;
+    video.poster      = vid.thumb || '';
+    video.onerror     = () => _tryImage(wrap, data);
     wrap.appendChild(video);
-  } else {
-    const img     = new Image();
-    img.className = 'ad-preview-media';
-    img.alt       = data.title || 'Criativo';
-    img.onerror   = function() { _showNoMedia(wrap); };
-    img.onload    = function() {
-      wrap.innerHTML = '';
-      wrap.appendChild(img);
-      _addOverlay(wrap);
-    };
-    img.src = data.imageUrl;
+    _addOverlay(wrap);
     return;
   }
 
-  _addOverlay(wrap);
+  _tryImage(wrap, data);
+}
+
+function _tryImage(wrap, data) {
+  const imgUrl = data.images && data.images[0];
+  if (!imgUrl) { _showNoMedia(wrap); return; }
+
+  const img = new Image();
+  img.className = 'ad-preview-media';
+  // Se for foto da página, aplica object-fit contain para não distorcer
+  if (data.source === 'page_picture') {
+    img.style.objectFit = 'contain';
+    img.style.background = '#1a1a2e';
+    img.style.padding = '8px';
+  }
+  img.onerror = () => _showNoMedia(wrap);
+  img.onload  = () => {
+    wrap.innerHTML = '';
+    wrap.appendChild(img);
+    _addOverlay(wrap);
+  };
+  img.src = imgUrl;
 }
 
 function _addOverlay(wrap) {
@@ -157,7 +183,7 @@ function _showNoMedia(wrap) {
     a.target      = '_blank';
     a.rel         = 'noopener';
     a.textContent = '↗ Ver no Facebook';
-    a.addEventListener('click', function(e) { e.stopPropagation(); });
+    a.addEventListener('click', e => e.stopPropagation());
     div.appendChild(a);
   } else {
     div.innerHTML = '<span style="font-size:28px;opacity:.3">🖼</span>';
@@ -171,24 +197,31 @@ function _showNoMedia(wrap) {
   }
 }
 
-// Cria o elemento DOM do preview com spinner e agenda o lazy load via Observer.
+// IntersectionObserver: carrega quando card entra na tela
+const _previewObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    _previewObserver.unobserve(entry.target);
+    _loadPreview(entry.target);
+  });
+}, { rootMargin: '400px' });
+
 function buildPreviewWrap(ad, onclickFn) {
   const wrap = document.createElement('div');
   wrap.className  = 'ad-preview-wrap';
   wrap._adData    = ad;
   wrap._onclickFn = typeof onclickFn === 'function' ? onclickFn : null;
 
-  // Spinner enquanto carrega
+  // Spinner
   const loading = document.createElement('div');
   loading.className = 'ad-preview-loading';
-  const spinner = document.createElement('div');
-  spinner.className = 'mini-spinner';
-  loading.appendChild(spinner);
+  const sp = document.createElement('div');
+  sp.className = 'mini-spinner';
+  loading.appendChild(sp);
   wrap.appendChild(loading);
 
-  // Se já em cache, renderiza imediatamente
   if (ad && _previewCache[ad.id]) {
-    _applyPreviewData(wrap, _previewCache[ad.id]);
+    _applyMedia(wrap, _previewCache[ad.id]);
   } else {
     _previewObserver.observe(wrap);
   }
