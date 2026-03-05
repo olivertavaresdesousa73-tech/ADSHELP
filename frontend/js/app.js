@@ -59,96 +59,70 @@ async function fetchAds(params) {
 //   3. Cards  → snapshot.cards[0].original_image_url / video_hd_url
 //   4. Fallback → link para ad_snapshot_url no Facebook
 
-// Extrai { imageUrl, videoUrl } do campo snapshot que vem direto da API
-function _extractMediaFromSnapshot(ad) {
-  const snap = ad.snapshot;
-  if (!snap) return { imageUrl: null, videoUrl: null };
+// SOLUÇÃO DEFINITIVA: Usar ad_snapshot_url dentro de um iframe.
+// O token já está embutido na URL — o browser carrega o anúncio completo
+// diretamente do Facebook, sem proxy, sem CORS, sem scraping.
 
-  // Vídeo
-  const videos = snap.videos || [];
-  for (const v of videos) {
-    const url = v.video_hd_url || v.video_sd_url;
-    if (url) return { imageUrl: v.video_preview_image_url || null, videoUrl: url };
-  }
+// IntersectionObserver: só cria o iframe quando o card entra na viewport
+const _previewObserver = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    if (!entry.isIntersecting) return;
+    const wrap = entry.target;
+    _previewObserver.unobserve(wrap);
+    _loadIframe(wrap);
+  });
+}, { rootMargin: '300px' });
 
-  // Cards com vídeo
-  const cards = snap.cards || [];
-  for (const c of cards) {
-    const url = c.video_hd_url || c.video_sd_url;
-    if (url) return { imageUrl: null, videoUrl: url };
-  }
-
-  // Imagem
-  const images = snap.images || [];
-  for (const img of images) {
-    const url = img.original_image_url || img.resized_image_url;
-    if (url) return { imageUrl: url, videoUrl: null };
-  }
-
-  // Cards com imagem
-  for (const c of cards) {
-    const url = c.original_image_url || c.resized_image_url;
-    if (url) return { imageUrl: url, videoUrl: null };
-  }
-
-  return { imageUrl: null, videoUrl: null };
-}
-
-// Renderiza a mídia no wrap (elemento DOM já existente)
-function _renderMedia(wrap, imageUrl, videoUrl, onclickFn) {
-  wrap.innerHTML = '';
-
-  if (videoUrl) {
-    const video = document.createElement('video');
-    video.className   = 'ad-preview-media';
-    video.autoplay    = true;
-    video.muted       = true;
-    video.loop        = true;
-    video.playsInline = true;
-    video.preload     = 'metadata';
-    video.src         = videoUrl;
-    video.poster      = imageUrl || '';
-    video.onerror     = function() { _renderFallback(wrap, null, onclickFn); };
-    wrap.appendChild(video);
-  } else if (imageUrl) {
-    const img     = new Image();
-    img.className = 'ad-preview-media';
-    img.alt       = 'Criativo';
-    img.onerror   = function() { _renderFallback(wrap, null, onclickFn); };
-    img.onload    = function() {
-      wrap.innerHTML = '';
-      wrap.appendChild(img);
-      if (onclickFn) {
-        const ov = document.createElement('div');
-        ov.className = 'iframe-click-overlay';
-        ov.addEventListener('click', onclickFn);
-        wrap.appendChild(ov);
-      }
-    };
-    img.src = imageUrl;
-    return; // aguarda onload antes de adicionar overlay
-  } else {
-    _renderFallback(wrap, null, onclickFn);
+function _loadIframe(wrap) {
+  const ad = wrap._adData;
+  if (!ad || !ad.ad_snapshot_url) {
+    _showNoMedia(wrap);
     return;
   }
 
-  if (onclickFn) {
+  wrap.innerHTML = '';
+
+  const iframe = document.createElement('iframe');
+  iframe.src         = ad.ad_snapshot_url;
+  iframe.className   = 'ad-preview-iframe';
+  iframe.scrolling   = 'no';
+  iframe.frameBorder = '0';
+  iframe.loading     = 'lazy';
+  iframe.sandbox     = 'allow-scripts allow-same-origin allow-popups';
+  iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+
+  // Timeout: se não carregar em 8s mostra fallback
+  const timeout = setTimeout(function() {
+    if (wrap.contains(iframe)) _showNoMedia(wrap);
+  }, 8000);
+
+  iframe.onload = function() {
+    clearTimeout(timeout);
+    // Remove o spinner se ainda estiver lá
+    const spinner = wrap.querySelector('.ad-preview-loading');
+    if (spinner) spinner.remove();
+  };
+
+  wrap.appendChild(iframe);
+
+  // Overlay de clique para abrir o modal (não interfere com o iframe)
+  if (wrap._onclickFn) {
     const ov = document.createElement('div');
     ov.className = 'iframe-click-overlay';
-    ov.addEventListener('click', onclickFn);
+    ov.addEventListener('click', wrap._onclickFn);
     wrap.appendChild(ov);
   }
 }
 
-function _renderFallback(wrap, ad, onclickFn) {
+function _showNoMedia(wrap) {
   wrap.innerHTML = '';
+  const ad = wrap._adData;
   const div = document.createElement('div');
   div.className = 'ad-preview-no-media';
-  const snapshotUrl = (ad && ad.ad_snapshot_url) || (wrap._adData && wrap._adData.ad_snapshot_url);
-  if (snapshotUrl) {
+  if (ad && ad.ad_snapshot_url) {
     const a = document.createElement('a');
     a.className   = 'ad-preview-fb-link';
-    a.href        = snapshotUrl;
+    a.href        = ad.ad_snapshot_url;
     a.target      = '_blank';
     a.rel         = 'noopener';
     a.textContent = '↗ Ver no Facebook';
@@ -158,33 +132,33 @@ function _renderFallback(wrap, ad, onclickFn) {
     div.innerHTML = '<span style="font-size:28px;opacity:.3">🖼</span>';
   }
   wrap.appendChild(div);
-  if (onclickFn) {
+  if (wrap._onclickFn) {
     const ov = document.createElement('div');
     ov.className = 'iframe-click-overlay';
-    ov.addEventListener('click', onclickFn);
+    ov.addEventListener('click', wrap._onclickFn);
     wrap.appendChild(ov);
   }
 }
 
-// Cria o elemento DOM do preview, já renderizando a mídia se disponível.
-// Retorna o elemento — deve ser inserido no DOM pelo chamador.
+// Cria o elemento DOM do preview com spinner e agenda o lazy load.
 function buildPreviewWrap(ad, onclickFn) {
   const wrap = document.createElement('div');
   wrap.className  = 'ad-preview-wrap';
   wrap._adData    = ad;
   wrap._onclickFn = typeof onclickFn === 'function' ? onclickFn : null;
 
-  const { imageUrl, videoUrl } = _extractMediaFromSnapshot(ad);
+  // Spinner enquanto aguarda entrar na viewport
+  const loading = document.createElement('div');
+  loading.className = 'ad-preview-loading';
+  const spinner = document.createElement('div');
+  spinner.className = 'mini-spinner';
+  loading.appendChild(spinner);
+  wrap.appendChild(loading);
 
-  if (imageUrl || videoUrl) {
-    // Mídia disponível no JSON: renderiza direto, sem nenhum fetch extra
-    _renderMedia(wrap, imageUrl, videoUrl, wrap._onclickFn);
-  } else {
-    // snapshot não retornou mídia: mostra fallback imediatamente (sem spinner)
-    _renderFallback(wrap, ad, wrap._onclickFn);
-  }
+  // Agenda carregamento quando entrar na viewport
+  _previewObserver.observe(wrap);
 
-  return wrap; // elemento DOM real, pronto para appendChild
+  return wrap;
 }
 
 // ── STATE ─────────────────────────────────────────────────────
