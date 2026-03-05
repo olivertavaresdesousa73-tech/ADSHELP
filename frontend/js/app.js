@@ -59,64 +59,95 @@ async function fetchAds(params) {
 //   3. Cards  → snapshot.cards[0].original_image_url / video_hd_url
 //   4. Fallback → link para ad_snapshot_url no Facebook
 
-// SOLUÇÃO DEFINITIVA: Usar ad_snapshot_url dentro de um iframe.
-// O token já está embutido na URL — o browser carrega o anúncio completo
-// diretamente do Facebook, sem proxy, sem CORS, sem scraping.
+// ─── PREVIEW VIA NETLIFY FUNCTION render.js ───────────────────────────────────
+// A função /.netlify/functions/render?id=<AD_ID> usa o Cloudflare Worker
+// público (render-facebook-ad.lejo.workers.dev) para buscar o HTML do anúncio
+// e extrair og:image / og:video + fallback de URL de CDN do Facebook.
+// Tudo server-side: sem CORS, sem token, sem serviço pago.
 
-// IntersectionObserver: só cria o iframe quando o card entra na viewport
+// Cache em memória para não repetir requests no mesmo sessão
+const _previewCache = {};
+
+// IntersectionObserver: só dispara o fetch quando o card entra na viewport
 const _previewObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     if (!entry.isIntersecting) return;
     const wrap = entry.target;
     _previewObserver.unobserve(wrap);
-    _loadIframe(wrap);
+    _loadRenderPreview(wrap);
   });
-}, { rootMargin: '300px' });
+}, { rootMargin: '400px' });
 
-function _loadIframe(wrap) {
+function _loadRenderPreview(wrap) {
   const ad = wrap._adData;
-  if (!ad || !ad.ad_snapshot_url) {
+  if (!ad || !ad.id) { _showNoMedia(wrap); return; }
+
+  const adId = ad.id;
+
+  // Se já temos em cache, usa direto
+  if (_previewCache[adId]) {
+    _applyPreviewData(wrap, _previewCache[adId]);
+    return;
+  }
+
+  // Chama a nossa Netlify Function
+  fetch('/.netlify/functions/render?id=' + encodeURIComponent(adId))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (!data) { _showNoMedia(wrap); return; }
+      _previewCache[adId] = data;
+      _applyPreviewData(wrap, data);
+    })
+    .catch(function() { _showNoMedia(wrap); });
+}
+
+function _applyPreviewData(wrap, data) {
+  if (!data.found || (!data.imageUrl && !data.videoUrl)) {
     _showNoMedia(wrap);
     return;
   }
 
   wrap.innerHTML = '';
 
-  const iframe = document.createElement('iframe');
-  iframe.src         = ad.ad_snapshot_url;
-  iframe.className   = 'ad-preview-iframe';
-  iframe.scrolling   = 'no';
-  iframe.frameBorder = '0';
-  iframe.loading     = 'lazy';
-  iframe.sandbox     = 'allow-scripts allow-same-origin allow-popups';
-  iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-
-  // Timeout: se não carregar em 8s mostra fallback
-  const timeout = setTimeout(function() {
-    if (wrap.contains(iframe)) _showNoMedia(wrap);
-  }, 8000);
-
-  iframe.onload = function() {
-    clearTimeout(timeout);
-    // Remove o spinner se ainda estiver lá
-    const spinner = wrap.querySelector('.ad-preview-loading');
-    if (spinner) spinner.remove();
-  };
-
-  wrap.appendChild(iframe);
-
-  // Overlay de clique para abrir o modal (não interfere com o iframe)
-  if (wrap._onclickFn) {
-    const ov = document.createElement('div');
-    ov.className = 'iframe-click-overlay';
-    ov.addEventListener('click', wrap._onclickFn);
-    wrap.appendChild(ov);
+  if (data.videoUrl) {
+    const video = document.createElement('video');
+    video.className   = 'ad-preview-media';
+    video.autoplay    = true;
+    video.muted       = true;
+    video.loop        = true;
+    video.playsInline = true;
+    video.src         = data.videoUrl;
+    video.poster      = data.imageUrl || '';
+    video.onerror     = function() { _showNoMedia(wrap); };
+    wrap.appendChild(video);
+  } else {
+    const img     = new Image();
+    img.className = 'ad-preview-media';
+    img.alt       = data.title || 'Criativo';
+    img.onerror   = function() { _showNoMedia(wrap); };
+    img.onload    = function() {
+      wrap.innerHTML = '';
+      wrap.appendChild(img);
+      _addOverlay(wrap);
+    };
+    img.src = data.imageUrl;
+    return;
   }
+
+  _addOverlay(wrap);
+}
+
+function _addOverlay(wrap) {
+  if (!wrap._onclickFn) return;
+  const ov = document.createElement('div');
+  ov.className = 'iframe-click-overlay';
+  ov.addEventListener('click', wrap._onclickFn);
+  wrap.appendChild(ov);
 }
 
 function _showNoMedia(wrap) {
   wrap.innerHTML = '';
-  const ad = wrap._adData;
+  const ad  = wrap._adData;
   const div = document.createElement('div');
   div.className = 'ad-preview-no-media';
   if (ad && ad.ad_snapshot_url) {
@@ -140,14 +171,14 @@ function _showNoMedia(wrap) {
   }
 }
 
-// Cria o elemento DOM do preview com spinner e agenda o lazy load.
+// Cria o elemento DOM do preview com spinner e agenda o lazy load via Observer.
 function buildPreviewWrap(ad, onclickFn) {
   const wrap = document.createElement('div');
   wrap.className  = 'ad-preview-wrap';
   wrap._adData    = ad;
   wrap._onclickFn = typeof onclickFn === 'function' ? onclickFn : null;
 
-  // Spinner enquanto aguarda entrar na viewport
+  // Spinner enquanto carrega
   const loading = document.createElement('div');
   loading.className = 'ad-preview-loading';
   const spinner = document.createElement('div');
@@ -155,8 +186,12 @@ function buildPreviewWrap(ad, onclickFn) {
   loading.appendChild(spinner);
   wrap.appendChild(loading);
 
-  // Agenda carregamento quando entrar na viewport
-  _previewObserver.observe(wrap);
+  // Se já em cache, renderiza imediatamente
+  if (ad && _previewCache[ad.id]) {
+    _applyPreviewData(wrap, _previewCache[ad.id]);
+  } else {
+    _previewObserver.observe(wrap);
+  }
 
   return wrap;
 }
