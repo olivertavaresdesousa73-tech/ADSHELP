@@ -1021,6 +1021,41 @@ function initSettingsToken(){
   const saved=localStorage.getItem('adhelp_token');
   document.getElementById('apiTokenInput').value=saved||'';
   document.getElementById('tokenStatus').textContent=saved?'✓ Token personalizado':'✓ Token padrão';
+  const extToken=localStorage.getItem('adhelp_ext_token');
+  if(extToken) document.getElementById('extTokenDisplay').textContent=extToken;
+}
+function _makeToken(){
+  const arr=new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return 'adh_'+Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function generateExtToken(){
+  const existing=localStorage.getItem('adhelp_ext_token');
+  if(existing){
+    document.getElementById('extTokenDisplay').textContent=existing;
+    showToast('Token já gerado! Copie e cole na extensão.','info');
+    return;
+  }
+  const token=_makeToken();
+  localStorage.setItem('adhelp_ext_token',token);
+  document.getElementById('extTokenDisplay').textContent=token;
+  showToast('Token gerado! Copie e cole na extensão Chrome.','success');
+}
+function regenerateExtToken(){
+  if(!confirm('Regenerar invalidará o token atual. A extensão precisará ser reconfigurada. Continuar?')) return;
+  const token=_makeToken();
+  localStorage.setItem('adhelp_ext_token',token);
+  document.getElementById('extTokenDisplay').textContent=token;
+  showToast('Novo token gerado! Atualize na extensão.','success');
+}
+function copyExtToken(){
+  const token=localStorage.getItem('adhelp_ext_token');
+  if(!token||token.includes('Clique')){showToast('Gere um token primeiro!','error');return;}
+  navigator.clipboard.writeText(token).then(()=>showToast('Token copiado!','success'));
+}
+function downloadExtension(e){
+  e.preventDefault();
+  showToast('Use o arquivo adhelp-extensao-chrome.zip entregue junto com o site.','info');
 }
 function saveApiToken(){
   const v=document.getElementById('apiTokenInput').value.trim();

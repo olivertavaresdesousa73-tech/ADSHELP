@@ -446,6 +446,48 @@
               Obtenha em: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" style="color:var(--accent)">developers.facebook.com/tools/explorer</a>
             </p>
           </div>
+          <!-- ── TOKEN DA EXTENSÃO CHROME ── -->
+          <div style="padding:18px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <span style="font-size:20px">🧩</span>
+              <div>
+                <h4 style="font-size:14px;font-weight:700;color:var(--text1)">Token da Extensão Chrome</h4>
+                <p style="font-size:12px;color:var(--text3);margin-top:2px">Use este token para conectar a extensão ao seu site e capturar imagens automaticamente</p>
+              </div>
+            </div>
+
+            <!-- Token gerado -->
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Seu Token</span>
+                <span class="badge badge-green" id="extTokenStatus">● Ativo</span>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <code id="extTokenDisplay" style="flex:1;font-family:monospace;font-size:12px;color:var(--accent);word-break:break-all;background:var(--bg4);padding:8px 10px;border-radius:6px;letter-spacing:.5px">Clique em "Gerar Token" para criar</code>
+                <button class="btn btn-ghost btn-sm" onclick="copyExtToken()" title="Copiar">📋</button>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="generateExtToken()">⚡ Gerar Token</button>
+              <button class="btn btn-ghost btn-sm" onclick="regenerateExtToken()">🔄 Regenerar</button>
+            </div>
+
+            <!-- Instruções de uso -->
+            <div style="margin-top:14px;background:linear-gradient(135deg,#6c47ff11,#a855f711);border:1px solid #6c47ff33;border-radius:10px;padding:14px">
+              <p style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px">📖 Como usar a extensão:</p>
+              <ol style="font-size:12px;color:var(--text2);line-height:1.9;padding-left:16px;margin:0">
+                <li>Baixe a extensão: <a id="extDownloadLink" href="#" style="color:var(--accent);font-weight:600" onclick="downloadExtension(event)">adhelp-extensao-chrome.zip</a></li>
+                <li>Abra o Chrome → <code style="background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:11px">chrome://extensions</code></li>
+                <li>Ative <strong>Modo do desenvolvedor</strong> (canto superior direito)</li>
+                <li>Clique em <strong>"Carregar sem compactação"</strong> e selecione a pasta extraída</li>
+                <li>Clique no ícone ⚡ na barra do Chrome e cole o token acima</li>
+                <li>Acesse <a href="https://www.facebook.com/ads/library/" target="_blank" style="color:var(--accent)">facebook.com/ads/library</a> e navegue normalmente</li>
+                <li>As imagens aparecem automaticamente aqui no site! ✅</li>
+              </ol>
+            </div>
+          </div>
+
           <div class="settings-row">
             <div class="settings-label"><h4>🗑️ Limpar Histórico</h4><p>Remove todas as buscas salvas</p></div>
             <button class="btn btn-danger btn-sm" onclick="clearSearchHistory()">Limpar</button>
